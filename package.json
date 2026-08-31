@@ -1,0 +1,35 @@
+{
+  "name": "condition",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Condition — privacy-preserving parametric insurance on Midnight. Policies are transparent, claims settle privately, fairness is proven publicly.",
+  "type": "module",
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.json && npm run build:contracts",
+    "build:contracts": "node scripts/build-contracts.mjs",
+    "build:frontend": "next build frontend",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "dev": "next dev frontend",
+    "deploy": "tsx deploy/deploy.ts",
+    "postinstall": "node scripts/postinstall.mjs"
+  },
+  "devDependencies": {
+    "@next/swc-wasm-nodejs": "^14.2.33",
+    "@testing-library/react": "^16.1.0",
+    "@types/node": "^22.10.0",
+    "@types/react": "^18.3.0",
+    "@types/react-dom": "^18.3.0",
+    "jsdom": "^25.0.0",
+    "next": "^14.2.33",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1",
+    "tsx": "^4.19.0",
+    "typescript": "^5.6.0",
+    "vitest": "^1.6.0"
+  }
+}

@@ -1,0 +1,14 @@
+node_modules/
+dist/
+.next/
+out/
+coverage/
+.env
+.env.local
+.env*.local
+deploy/deployments.json
+contracts/managed/
+*.log
+.DS_Store
+.qwen/
+glmplan.md
