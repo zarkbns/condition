@@ -1,0 +1,152 @@
+pragma language_version >= 0.16 && <= 0.22;
+
+// Condition — canonical ZK circuit library (BUILD_SPEC.md §7.3).
+//
+// These exported pure circuits are the reference definitions of Condition's
+// proof statements. The TypeScript reference runtime (src/core/hashing.ts,
+// src/core/zkProver.ts) mirrors them digest-for-digest; when both layers can
+// run, tests/compactParity.test.ts pins their agreement.
+//
+// Domain-separated hashing: every digest is
+//   persistentHash<Vector<N, Bytes<32>>>([pad(32, tag), field, ..., field])
+// with each field exactly 32 bytes. Integers/booleans/enum codes enter the
+// preimage as (n as Field) as Bytes<32>; the TS side uses the canonical
+// little-endian encodings documented in src/core/hashing.ts — the compact
+// parity test is the guard that the two encodings agree once compiled.
+//
+// Enum code mapping (shared with src/types/index.ts — 0-based, matches both
+// the TS enum ordinals and the Compact enum ordinals in policy.compact):
+//   TriggerType: TEMPERATURE=0, RAINFALL_MM=1, FLIGHT_DELAY_MIN=2, EARTHQUAKE_MAG=3
+//   ComparisonOp: GT=0, GTE=1, LT=2, LTE=3, EQ=4
+//   PolicyStatus: ACTIVE=0, TRIGGERED=1, SETTLING=2, SETTLED=3, DENIED=4, EXPIRED=5, CLOSED=6
+
+import CompactStandardLibrary;
+
+// ---------------------------------------------------------------------------
+// Field encodings
+// ---------------------------------------------------------------------------
+
+export pure circuit scalar_bytes32(n: Int<64>): Bytes<32> {
+  return (n as Field) as Bytes<32>;
+}
+
+export pure circuit bool_bytes32(b: Boolean): Bytes<32> {
+  if (b) {
+    return (1 as Field) as Bytes<32>;
+  } else {
+    return (0 as Field) as Bytes<32>;
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Policy-side digests
+// ---------------------------------------------------------------------------
+
+export pure circuit terms_digest(
+  policy_id: Bytes<32>,
+  trigger_type: Int<8>,
+  operator: Int<8>,
+  threshold: Int<64>,
+  payout: Int<64>,
+  premium: Int<64>,
+  start: Int<64>,
+  expiry: Int<64>,
+): Bytes<32> {
+  return persistentHash<Vector<9, Bytes<32>>>([
+    pad(32, "condition:terms:v1"),
+    policy_id,
+    (trigger_type as Field) as Bytes<32>,
+    (operator as Field) as Bytes<32>,
+    (threshold as Field) as Bytes<32>,
+    (payout as Field) as Bytes<32>,
+    (premium as Field) as Bytes<32>,
+    (start as Field) as Bytes<32>,
+    (expiry as Field) as Bytes<32>,
+  ]);
+}
+
+// ---------------------------------------------------------------------------
+// Claimant-side derivations — the three digests that are a claimant's entire
+// public surface. Eligibility and nullifier use DIFFERENT domain tags so the
+// enrollment commitment and the spent nullifier are not linkable.
+// ---------------------------------------------------------------------------
+
+export pure circuit derive_eligibility(secret: Bytes<32>, policy_id: Bytes<32>): Bytes<32> {
+  return persistentHash<Vector<3, Bytes<32>>>([
+    pad(32, "condition:elig:v1"),
+    policy_id,
+    secret,
+  ]);
+}
+
+export pure circuit derive_nullifier(secret: Bytes<32>, policy_id: Bytes<32>): Bytes<32> {
+  return persistentHash<Vector<3, Bytes<32>>>([
+    pad(32, "condition:null:v1"),
+    policy_id,
+    secret,
+  ]);
+}
+
+// H(amount) — hides the payout size while binding the proof to it.
+export pure circuit payout_commitment(amount: Int<64>): Bytes<32> {
+  return persistentHash<Vector<2, Bytes<32>>>([
+    pad(32, "condition:amount:v1"),
+    (amount as Field) as Bytes<32>,
+  ]);
+}
+
+// ---------------------------------------------------------------------------
+// Deterministic payout (BUILD_SPEC.md §5.1 rule 3) — nobody, not even the
+// claimant, chooses the amount.
+// ---------------------------------------------------------------------------
+
+export pure circuit expected_payout(trigger_fired: Boolean, in_window: Boolean, payout: Int<64>): Int<64> {
+  if (trigger_fired && in_window) {
+    return payout;
+  } else {
+    return 0;
+  }
+}
+
+export pure circuit in_window(start: Int<64>, expiry: Int<64>, now: Int<64>): Boolean {
+  return start <= now && now <= expiry;
+}
+
+// ---------------------------------------------------------------------------
+// Receipt digest — the public, amount-free receipt binding.
+// ---------------------------------------------------------------------------
+
+export pure circuit receipt_digest(
+  policy_id: Bytes<32>,
+  proof_hash: Bytes<32>,
+  trigger_outcome: Boolean,
+  settled: Boolean,
+  timestamp: Int<64>,
+): Bytes<32> {
+  return persistentHash<Vector<6, Bytes<32>>>([
+    pad(32, "condition:receipt:v1"),
+    policy_id,
+    proof_hash,
+    bool_bytes32(trigger_outcome),
+    bool_bytes32(settled),
+    scalar_bytes32(timestamp),
+  ]);
+}
+
+// Statement digest over the proof's public inputs.
+export pure circuit statement_digest(
+  policy_id: Bytes<32>,
+  terms_digest_v: Bytes<32>,
+  nullifier: Bytes<32>,
+  trigger_outcome: Boolean,
+  payout_commitment_v: Bytes<32>,
+): Bytes<32> {
+  return persistentHash<Vector<6, Bytes<32>>>([
+    pad(32, "condition:stmt:v1"),
+    policy_id,
+    terms_digest_v,
+    nullifier,
+    bool_bytes32(trigger_outcome),
+    payout_commitment_v,
+  ]);
+}

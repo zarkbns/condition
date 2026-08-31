@@ -1,0 +1,285 @@
+pragma language_version >= 0.16 && <= 0.22;
+
+// Condition — policy contract (BUILD_SPEC.md §7.1).
+//
+// One instance per policy (Compact ledgers hold primitive state; per-policy
+// instances avoid unbounded state). All ledgers here are PUBLIC — policy
+// terms are transparent by design (Invariant 5) and the only claimant-derived
+// value stored is the enrollment commitment H_elig(policyId, secret), a
+// one-way digest unlinkable to identity.
+//
+// Enum codes (compact 0-based ordinals, mirrored by src/core/hashing.ts):
+//   TriggerType: TEMPERATURE=0, RAINFALL_MM=1, FLIGHT_DELAY_MIN=2, EARTHQUAKE_MAG=3
+//   ComparisonOp: GT=0, GTE=1, LT=2, LTE=3, EQ=4
+//   PolicyStatus: ACTIVE=0, TRIGGERED=1, SETTLING=2, SETTLED=3, DENIED=4, EXPIRED=5, CLOSED=6
+
+import CompactStandardLibrary;
+
+export enum TriggerType   { temperature, rainfall_mm, flight_delay_min, earthquake_mag }
+export enum ComparisonOp  { gt, gte, lt, lte, eq }
+export enum PolicyStatus  { active, triggered, settling, settled, denied, expired, closed }
+
+// Public state (the on-chain public ledger surface).
+export ledger created:             Boolean;
+export ledger insurer_key:         Bytes<32>;
+export ledger terms_digest_v:      Bytes<32>;
+export ledger trigger_type:        TriggerType;
+export ledger op:                  ComparisonOp;
+export ledger threshold:           Int<64>;
+export ledger payout:              Int<64>;
+export ledger premium:             Int<64>;
+export ledger start:               Int<64>;
+export ledger expiry:              Int<64>;
+export ledger funded:              Int<64>;
+export ledger enrollment_commitment: Bytes<32>;
+export ledger enrolled:            Boolean;
+export ledger trigger_fired:       Boolean;
+export ledger trigger_recorded:    Boolean;
+export ledger trigger_value:       Int<64>;
+export ledger trigger_source1:     Bytes<32>;
+export ledger trigger_source2:     Bytes<32>;
+export ledger status:              PolicyStatus;
+export ledger created_at:          Int<64>;
+export ledger policy_id:           Bytes<32>;
+export ledger policy_nonce:        Int<64>;
+
+// Private witness supplied by the holder's local witness provider.
+witness holder_secret(): Bytes<32>;
+
+// ---------------------------------------------------------------------------
+// Embedded canonical circuits (BUILD_SPEC §7.3 — self-contained contract;
+// proofs.compact exports the same definitions for standalone proving).
+// ---------------------------------------------------------------------------
+
+pure circuit bool_bytes32(b: Boolean): Bytes<32> {
+  if (b) {
+    return (1 as Field) as Bytes<32>;
+  } else {
+    return (0 as Field) as Bytes<32>;
+  }
+}
+
+pure circuit scalar_bytes32(n: Int<64>): Bytes<32> {
+  return (n as Field) as Bytes<32>;
+}
+
+pure circuit terms_digest_c(
+  policy_id_v: Bytes<32>,
+  trigger_type_v: TriggerType,
+  op_v: ComparisonOp,
+  threshold_v: Int<64>,
+  payout_v: Int<64>,
+  premium_v: Int<64>,
+  start_v: Int<64>,
+  expiry_v: Int<64>,
+): Bytes<32> {
+  return persistentHash<Vector<9, Bytes<32>>>([
+    pad(32, "condition:terms:v1"),
+    policy_id_v,
+    (trigger_type_v as Field) as Bytes<32>,
+    (op_v as Field) as Bytes<32>,
+    (threshold_v as Field) as Bytes<32>,
+    (payout_v as Field) as Bytes<32>,
+    (premium_v as Field) as Bytes<32>,
+    (start_v as Field) as Bytes<32>,
+    (expiry_v as Field) as Bytes<32>,
+  ]);
+}
+
+pure circuit derive_eligibility_c(secret: Bytes<32>, policy_id_v: Bytes<32>): Bytes<32> {
+  return persistentHash<Vector<3, Bytes<32>>>([
+    pad(32, "condition:elig:v1"),
+    policy_id_v,
+    secret,
+  ]);
+}
+
+pure circuit derive_nullifier_c(secret: Bytes<32>, policy_id_v: Bytes<32>): Bytes<32> {
+  return persistentHash<Vector<3, Bytes<32>>>([
+    pad(32, "condition:null:v1"),
+    policy_id_v,
+    secret,
+  ]);
+}
+
+export pure circuit expected_payout(trigger_fired_v: Boolean, in_window_v: Boolean, payout_v: Int<64>): Int<64> {
+  if (trigger_fired_v && in_window_v) {
+    return payout_v;
+  } else {
+    return 0;
+  }
+}
+
+export pure circuit in_window(start_v: Int<64>, expiry_v: Int<64>, now: Int<64>): Boolean {
+  return start_v <= now && now <= expiry_v;
+}
+
+pure circuit compare(value: Int<64>, threshold_v: Int<64>, op_v: ComparisonOp): Boolean {
+  if (op_v == ComparisonOp.gt) {
+    return value > threshold_v;
+  } else {
+    if (op_v == ComparisonOp.gte) {
+      return value >= threshold_v;
+    } else {
+      if (op_v == ComparisonOp.lt) {
+        return value < threshold_v;
+      } else {
+        if (op_v == ComparisonOp.lte) {
+          return value <= threshold_v;
+        } else {
+          return value == threshold_v;
+        }
+      }
+    }
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Circuits (contract entry points)
+// ---------------------------------------------------------------------------
+
+// Insurer initializes the policy. Every argument is disclosed (public).
+export circuit create(
+  insurer: Bytes<32>,
+  trigger_type_v: TriggerType,
+  op_v: ComparisonOp,
+  threshold_v: Int<64>,
+  payout_v: Int<64>,
+  premium_v: Int<64>,
+  start_v: Int<64>,
+  expiry_v: Int<64>,
+  now: Int<64>,
+  nonce: Int<64>,
+): Bytes<32> {
+  assert(!created, "ALREADY_CREATED");
+  assert(payout_v > 0, "INSUFFICIENT_FUNDING");
+  assert(premium_v >= 0, "INSUFFICIENT_FUNDING");
+  assert(start_v < expiry_v, "POLICY_INACTIVE");
+
+  const this_id = persistentHash<Vector<3, Bytes<32>>>([
+    pad(32, "condition:policy:v1"),
+    insurer,
+    scalar_bytes32(nonce),
+  ]);
+
+  created            = true;
+  insurer_key        = insurer;
+  trigger_type       = trigger_type_v;
+  op                 = op_v;
+  threshold          = threshold_v;
+  payout             = payout_v;
+  premium            = premium_v;
+  start              = start_v;
+  expiry             = expiry_v;
+  funded             = 0;
+  enrolled           = false;
+  trigger_fired      = false;
+  trigger_recorded   = false;
+  status             = PolicyStatus.active;
+  created_at         = now;
+  policy_id          = this_id;
+  policy_nonce       = nonce;
+  terms_digest_v     = terms_digest_c(
+    this_id, trigger_type_v, op_v, threshold_v, payout_v, premium_v, start_v, expiry_v
+  );
+  return this_id;
+}
+
+// Disclosed funding — public escrow total.
+export circuit fund(amount: Int<64>): [] {
+  assert(amount > 0, "INSUFFICIENT_FUNDING");
+  assert(status == PolicyStatus.active || status == PolicyStatus.triggered, "POLICY_INACTIVE");
+  funded = funded + amount;
+}
+
+// Enrollment: the holder secret arrives as a private witness; ONLY the
+// commitment H_elig(policyId, secret) is disclosed and stored. The holder
+// pays the premium into escrow at enrollment (mirrors the reference
+// runtime: enrollHolder(policyId, commitment, premiumPaid, now)).
+export circuit enroll(premium_paid: Int<64>): Bytes<32> {
+  assert(status == PolicyStatus.active, "POLICY_INACTIVE");
+  assert(!enrolled, "ALREADY_ENROLLED");
+  assert(premium_paid >= premium, "PREMIUM_REQUIRED");
+
+  const secret      = holder_secret();
+  const commitment  = derive_eligibility_c(secret, policy_id);
+  enrollment_commitment = disclose(commitment);
+  enrolled = true;
+  funded   = funded + premium_paid;
+  return commitment;
+}
+
+// Trigger recording: two distinct source digests with AGREEING outcome are
+// required (fail-closed on conflict). Readings and outcome are public —
+// verifiable fairness of the trigger.
+export circuit record_trigger(
+  value1: Int<64>,
+  value2: Int<64>,
+  source1: Bytes<32>,
+  source2: Bytes<32>,
+): [] {
+  assert(status == PolicyStatus.active, "POLICY_INACTIVE");
+  assert(source1 != source2, "TRIGGER_INSUFFICIENT_SOURCES");
+
+  const outcome1 = compare(value1, threshold, op);
+  const outcome2 = compare(value2, threshold, op);
+  assert(outcome1 == outcome2, "TRIGGER_CONFLICT");
+
+  trigger_fired   = disclose(outcome1);
+  trigger_recorded = true;
+  trigger_value   = disclose((value1 + value2) / 2); // median of two readings
+  trigger_source1 = source1;
+  trigger_source2 = source2;
+  status          = PolicyStatus.triggered;
+}
+
+// Settlement signals the transition to SETTLING (called by the settlement
+// instance's flow; the policy instance is the source of truth for terms).
+export circuit begin_settling(): [] {
+  assert(status == PolicyStatus.triggered, "POLICY_INACTIVE");
+  assert(enrolled, "NOT_ENROLLED");
+  assert(trigger_recorded, "TRIGGER_NOT_RECORDED");
+  status = PolicyStatus.settling;
+}
+
+// Lazy expiry: flips any pre-terminal policy past its window to EXPIRED.
+export circuit expire(now: Int<64>): [] {
+  assert(
+    status == PolicyStatus.active || status == PolicyStatus.triggered || status == PolicyStatus.settling,
+    "POLICY_INACTIVE"
+  );
+  assert(now > expiry, "EXPIRY_REQUIRED");
+  status = PolicyStatus.expired;
+}
+
+// Mark settled/denied from the settlement instance after receipt publication.
+export circuit mark_settled(did_settle: Boolean): [] {
+  assert(status == PolicyStatus.settling, "POLICY_INACTIVE");
+  if (did_settle) {
+    status = PolicyStatus.settled;
+  } else {
+    status = PolicyStatus.denied;
+  }
+}
+
+// Insurer withdrawal of the unclaimed escrow remainder after terminal state.
+// The paid-out amount is derivable from public terms — leaks nothing.
+export circuit withdraw(): Int<64> {
+  assert(
+    status == PolicyStatus.settled || status == PolicyStatus.denied || status == PolicyStatus.expired,
+    "EXPIRY_REQUIRED"
+  );
+  var paid_out: Int<64> = 0;
+  if (status == PolicyStatus.settled) {
+    paid_out := payout;
+  }
+  const remainder = funded - paid_out;
+  funded = 0;
+  status = PolicyStatus.closed;
+  return remainder;
+}
+
+// The nullifier derivation, embedded for parity with settlement.compact.
+export pure circuit nullifier_for(secret: Bytes<32>, policy_id_v: Bytes<32>): Bytes<32> {
+  return derive_nullifier_c(secret, policy_id_v);
+}
