@@ -30,34 +30,34 @@ export ledger linked:                 Boolean;
 export ledger policy_id:              Bytes<32>;
 export ledger terms_digest_v:         Bytes<32>;
 export ledger enrollment_commitment:  Bytes<32>;
-export ledger payout:                 Int<64>;
-export ledger start:                  Int<64>;
-export ledger expiry:                 Int<64>;
+export ledger payout:                 Uint<64>;
+export ledger start:                  Uint<64>;
+export ledger expiry:                 Uint<64>;
 export ledger trigger_fired:          Boolean;
 export ledger spent_nullifiers:       Set<Bytes<32>>;
-export ledger settled_count:          Int<64>;
-export ledger denied_count:           Int<64>;
+export ledger settled_count:          Uint<64>;
+export ledger denied_count:           Uint<64>;
 export ledger last_receipt_hash:      Bytes<32>;
 export ledger last_status:            Boolean; // true = SETTLED, false = DENIED
-export ledger last_timestamp:         Int<64>;
+export ledger last_timestamp:         Uint<64>;
 
 // Private witnesses supplied by the claimant's local witness provider.
 // The holder secret NEVER leaves the claimant's device (Invariant 2).
 witness holder_secret():   Bytes<32>;
-witness claim_time():      Int<64>;
-witness observed_value():  Int<64>;
-witness recorded_at():     Int<64>;
+witness claim_time():      Uint<64>;
+witness observed_value():  Uint<64>;
+witness recorded_at():     Uint<64>;
 witness reading1_source(): Bytes<32>;
-witness reading1_value():  Int<64>;
+witness reading1_value():  Uint<64>;
 witness reading2_source(): Bytes<32>;
-witness reading2_value():  Int<64>;
+witness reading2_value():  Uint<64>;
 
 // ---------------------------------------------------------------------------
 // Embedded canonical circuits (BUILD_SPEC §7.3 — self-contained contract;
 // proofs.compact exports the same definitions for standalone proving).
 // ---------------------------------------------------------------------------
 
-pure circuit scalar_bytes32(n: Int<64>): Bytes<32> {
+pure circuit scalar_bytes32(n: Uint<64>): Bytes<32> {
   return (n as Field) as Bytes<32>;
 }
 
@@ -85,14 +85,14 @@ pure circuit derive_nullifier_c(secret: Bytes<32>, policy_id_v: Bytes<32>): Byte
   ]);
 }
 
-pure circuit payout_commitment_c(amount: Int<64>): Bytes<32> {
+pure circuit payout_commitment_c(amount: Uint<64>): Bytes<32> {
   return persistentHash<Vector<2, Bytes<32>>>([
     pad(32, "condition:amount:v1"),
     scalar_bytes32(amount),
   ]);
 }
 
-pure circuit expected_payout_c(trigger_fired_v: Boolean, in_window_v: Boolean, payout_v: Int<64>): Int<64> {
+pure circuit expected_payout_c(trigger_fired_v: Boolean, in_window_v: Boolean, payout_v: Uint<64>): Uint<64> {
   if (trigger_fired_v && in_window_v) {
     return payout_v;
   } else {
@@ -100,11 +100,11 @@ pure circuit expected_payout_c(trigger_fired_v: Boolean, in_window_v: Boolean, p
   }
 }
 
-pure circuit in_window_c(start_v: Int<64>, expiry_v: Int<64>, now_v: Int<64>): Boolean {
+pure circuit in_window_c(start_v: Uint<64>, expiry_v: Uint<64>, now_v: Uint<64>): Boolean {
   return start_v <= now_v && now_v <= expiry_v;
 }
 
-pure circuit reading_digest_c(source: Bytes<32>, value: Int<64>): Bytes<32> {
+pure circuit reading_digest_c(source: Bytes<32>, value: Uint<64>): Bytes<32> {
   return persistentHash<Vector<3, Bytes<32>>>([
     pad(32, "condition:reading:v1"),
     source,
@@ -135,11 +135,11 @@ pure circuit statement_digest_c(
 pure circuit witness_digest_c(
   policy_id_v: Bytes<32>,
   secret: Bytes<32>,
-  amount: Int<64>,
-  claim_time_v: Int<64>,
+  amount: Uint<64>,
+  claim_time_v: Uint<64>,
   outcome_v: Boolean,
-  observed_value_v: Int<64>,
-  recorded_at_v: Int<64>,
+  observed_value_v: Uint<64>,
+  recorded_at_v: Uint<64>,
   reading1_digest: Bytes<32>,
   reading2_digest: Bytes<32>,
 ): Bytes<32> {
@@ -170,7 +170,7 @@ pure circuit receipt_digest_c(
   proof_hash_v: Bytes<32>,
   trigger_outcome_v: Boolean,
   settled_v: Boolean,
-  timestamp_v: Int<64>,
+  timestamp_v: Uint<64>,
 ): Bytes<32> {
   return persistentHash<Vector<6, Bytes<32>>>([
     pad(32, "condition:receipt:v1"),
@@ -192,9 +192,9 @@ export circuit link(
   policy_id_in: Bytes<32>,
   terms_digest_in: Bytes<32>,
   enrollment_commitment_in: Bytes<32>,
-  payout_in: Int<64>,
-  start_in: Int<64>,
-  expiry_in: Int<64>,
+  payout_in: Uint<64>,
+  start_in: Uint<64>,
+  expiry_in: Uint<64>,
   trigger_fired_in: Boolean,
 ): [] {
   assert(!linked, "ALREADY_CREATED");
@@ -217,7 +217,7 @@ export circuit link(
 // `now` and `submitted_nullifier` are public-by-design inputs (receipt
 // timestamp / spent-registry key); the holder secret arrives via the local
 // witness provider and is never disclosed. Returns the public receipt id.
-export circuit settle(now: Int<64>, submitted_nullifier: Bytes<32>): Bytes<32> {
+export circuit settle(now: Uint<64>, submitted_nullifier: Bytes<32>): Bytes<32> {
   assert(linked, "POLICY_NOT_FOUND");
 
   const now_pub         = disclose(now);
@@ -259,9 +259,9 @@ export circuit settle(now: Int<64>, submitted_nullifier: Bytes<32>): Bytes<32> {
   //     Receipt fields are public: proof hash, status, timestamp — NO amount.
   spent_nullifiers.insert(nullifier_pub);
   if (settled) {
-    settled_count = settled_count + 1;
+    settled_count = (settled_count + 1) as Uint<64>;
   } else {
-    denied_count = denied_count + 1;
+    denied_count = (denied_count + 1) as Uint<64>;
   }
   last_receipt_hash = proof_hash_pub;
   last_status       = settled;
@@ -270,7 +270,11 @@ export circuit settle(now: Int<64>, submitted_nullifier: Bytes<32>): Bytes<32> {
   return disclose(receipt_digest_c(policy_id, proof_hash_pub, trigger_fired, settled, now_pub));
 }
 
-// Public aggregate counts only (Compact `counts()` view).
-export circuit counts(): (Int<64>, Int<64>) {
-  return (settled_count, denied_count);
+// Public aggregate counts only (Compact has no tuple returns — one per view).
+export circuit settled_total(): Uint<64> {
+  return settled_count;
+}
+
+export circuit denied_total(): Uint<64> {
+  return denied_count;
 }

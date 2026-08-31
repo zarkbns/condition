@@ -26,7 +26,7 @@ import CompactStandardLibrary;
 // Field encodings
 // ---------------------------------------------------------------------------
 
-export pure circuit scalar_bytes32(n: Int<64>): Bytes<32> {
+export pure circuit scalar_bytes32(n: Uint<64>): Bytes<32> {
   return (n as Field) as Bytes<32>;
 }
 
@@ -44,13 +44,13 @@ export pure circuit bool_bytes32(b: Boolean): Bytes<32> {
 
 export pure circuit terms_digest(
   policy_id: Bytes<32>,
-  trigger_type: Int<8>,
-  operator: Int<8>,
-  threshold: Int<64>,
-  payout: Int<64>,
-  premium: Int<64>,
-  start: Int<64>,
-  expiry: Int<64>,
+  trigger_type: Uint<8>,
+  operator: Uint<8>,
+  threshold: Uint<64>,
+  payout: Uint<64>,
+  premium: Uint<64>,
+  start: Uint<64>,
+  expiry: Uint<64>,
 ): Bytes<32> {
   return persistentHash<Vector<9, Bytes<32>>>([
     pad(32, "condition:terms:v1"),
@@ -88,7 +88,7 @@ export pure circuit derive_nullifier(secret: Bytes<32>, policy_id: Bytes<32>): B
 }
 
 // H(amount) — hides the payout size while binding the proof to it.
-export pure circuit payout_commitment(amount: Int<64>): Bytes<32> {
+export pure circuit payout_commitment(amount: Uint<64>): Bytes<32> {
   return persistentHash<Vector<2, Bytes<32>>>([
     pad(32, "condition:amount:v1"),
     (amount as Field) as Bytes<32>,
@@ -100,7 +100,7 @@ export pure circuit payout_commitment(amount: Int<64>): Bytes<32> {
 // claimant, chooses the amount.
 // ---------------------------------------------------------------------------
 
-export pure circuit expected_payout(trigger_fired: Boolean, in_window: Boolean, payout: Int<64>): Int<64> {
+export pure circuit expected_payout(trigger_fired: Boolean, in_window: Boolean, payout: Uint<64>): Uint<64> {
   if (trigger_fired && in_window) {
     return payout;
   } else {
@@ -108,7 +108,7 @@ export pure circuit expected_payout(trigger_fired: Boolean, in_window: Boolean, 
   }
 }
 
-export pure circuit in_window(start: Int<64>, expiry: Int<64>, now: Int<64>): Boolean {
+export pure circuit in_window(start: Uint<64>, expiry: Uint<64>, now: Uint<64>): Boolean {
   return start <= now && now <= expiry;
 }
 
@@ -121,7 +121,7 @@ export pure circuit receipt_digest(
   proof_hash: Bytes<32>,
   trigger_outcome: Boolean,
   settled: Boolean,
-  timestamp: Int<64>,
+  timestamp: Uint<64>,
 ): Bytes<32> {
   return persistentHash<Vector<6, Bytes<32>>>([
     pad(32, "condition:receipt:v1"),

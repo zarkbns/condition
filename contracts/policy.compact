@@ -25,23 +25,23 @@ export ledger insurer_key:         Bytes<32>;
 export ledger terms_digest_v:      Bytes<32>;
 export ledger trigger_type:        TriggerType;
 export ledger op:                  ComparisonOp;
-export ledger threshold:           Int<64>;
-export ledger payout:              Int<64>;
-export ledger premium:             Int<64>;
-export ledger start:               Int<64>;
-export ledger expiry:              Int<64>;
-export ledger funded:              Int<64>;
+export ledger threshold:           Uint<64>;
+export ledger payout:              Uint<64>;
+export ledger premium:             Uint<64>;
+export ledger start:               Uint<64>;
+export ledger expiry:              Uint<64>;
+export ledger funded:              Uint<64>;
 export ledger enrollment_commitment: Bytes<32>;
 export ledger enrolled:            Boolean;
 export ledger trigger_fired:       Boolean;
 export ledger trigger_recorded:    Boolean;
-export ledger trigger_value:       Int<64>;
+export ledger trigger_value:       Uint<64>;
 export ledger trigger_source1:     Bytes<32>;
 export ledger trigger_source2:     Bytes<32>;
 export ledger status:              PolicyStatus;
-export ledger created_at:          Int<64>;
+export ledger created_at:          Uint<64>;
 export ledger policy_id:           Bytes<32>;
-export ledger policy_nonce:        Int<64>;
+export ledger policy_nonce:        Uint<64>;
 
 // Private witness supplied by the holder's local witness provider.
 witness holder_secret(): Bytes<32>;
@@ -59,7 +59,7 @@ pure circuit bool_bytes32(b: Boolean): Bytes<32> {
   }
 }
 
-pure circuit scalar_bytes32(n: Int<64>): Bytes<32> {
+pure circuit scalar_bytes32(n: Uint<64>): Bytes<32> {
   return (n as Field) as Bytes<32>;
 }
 
@@ -67,11 +67,11 @@ pure circuit terms_digest_c(
   policy_id_v: Bytes<32>,
   trigger_type_v: TriggerType,
   op_v: ComparisonOp,
-  threshold_v: Int<64>,
-  payout_v: Int<64>,
-  premium_v: Int<64>,
-  start_v: Int<64>,
-  expiry_v: Int<64>,
+  threshold_v: Uint<64>,
+  payout_v: Uint<64>,
+  premium_v: Uint<64>,
+  start_v: Uint<64>,
+  expiry_v: Uint<64>,
 ): Bytes<32> {
   return persistentHash<Vector<9, Bytes<32>>>([
     pad(32, "condition:terms:v1"),
@@ -102,7 +102,7 @@ pure circuit derive_nullifier_c(secret: Bytes<32>, policy_id_v: Bytes<32>): Byte
   ]);
 }
 
-export pure circuit expected_payout(trigger_fired_v: Boolean, in_window_v: Boolean, payout_v: Int<64>): Int<64> {
+export pure circuit expected_payout(trigger_fired_v: Boolean, in_window_v: Boolean, payout_v: Uint<64>): Uint<64> {
   if (trigger_fired_v && in_window_v) {
     return payout_v;
   } else {
@@ -110,11 +110,11 @@ export pure circuit expected_payout(trigger_fired_v: Boolean, in_window_v: Boole
   }
 }
 
-export pure circuit in_window(start_v: Int<64>, expiry_v: Int<64>, now: Int<64>): Boolean {
+export pure circuit in_window(start_v: Uint<64>, expiry_v: Uint<64>, now: Uint<64>): Boolean {
   return start_v <= now && now <= expiry_v;
 }
 
-pure circuit compare(value: Int<64>, threshold_v: Int<64>, op_v: ComparisonOp): Boolean {
+pure circuit compare(value: Uint<64>, threshold_v: Uint<64>, op_v: ComparisonOp): Boolean {
   if (op_v == ComparisonOp.gt) {
     return value > threshold_v;
   } else {
@@ -134,6 +134,17 @@ pure circuit compare(value: Int<64>, threshold_v: Int<64>, op_v: ComparisonOp): 
   }
 }
 
+// Lower median of two readings — division-free (Compact has no integer
+// division) and identical to medianOf in the TS reference runtime for the
+// two-reading case.
+pure circuit min2(a: Uint<64>, b: Uint<64>): Uint<64> {
+  if (a < b) {
+    return a;
+  } else {
+    return b;
+  }
+}
+
 // ---------------------------------------------------------------------------
 // Circuits (contract entry points)
 // ---------------------------------------------------------------------------
@@ -143,13 +154,13 @@ export circuit create(
   insurer: Bytes<32>,
   trigger_type_v: TriggerType,
   op_v: ComparisonOp,
-  threshold_v: Int<64>,
-  payout_v: Int<64>,
-  premium_v: Int<64>,
-  start_v: Int<64>,
-  expiry_v: Int<64>,
-  now: Int<64>,
-  nonce: Int<64>,
+  threshold_v: Uint<64>,
+  payout_v: Uint<64>,
+  premium_v: Uint<64>,
+  start_v: Uint<64>,
+  expiry_v: Uint<64>,
+  now: Uint<64>,
+  nonce: Uint<64>,
 ): Bytes<32> {
   assert(!created, "ALREADY_CREATED");
   assert(payout_v > 0, "INSUFFICIENT_FUNDING");
@@ -163,40 +174,41 @@ export circuit create(
   ]);
 
   created            = true;
-  insurer_key        = insurer;
-  trigger_type       = trigger_type_v;
-  op                 = op_v;
-  threshold          = threshold_v;
-  payout             = payout_v;
-  premium            = premium_v;
-  start              = start_v;
-  expiry             = expiry_v;
+  insurer_key        = disclose(insurer);
+  trigger_type       = disclose(trigger_type_v);
+  op                 = disclose(op_v);
+  threshold          = disclose(threshold_v);
+  payout             = disclose(payout_v);
+  premium            = disclose(premium_v);
+  start              = disclose(start_v);
+  expiry             = disclose(expiry_v);
   funded             = 0;
   enrolled           = false;
   trigger_fired      = false;
   trigger_recorded   = false;
   status             = PolicyStatus.active;
-  created_at         = now;
-  policy_id          = this_id;
-  policy_nonce       = nonce;
-  terms_digest_v     = terms_digest_c(
+  created_at         = disclose(now);
+  policy_id          = disclose(this_id);
+  policy_nonce       = disclose(nonce);
+  terms_digest_v     = disclose(terms_digest_c(
     this_id, trigger_type_v, op_v, threshold_v, payout_v, premium_v, start_v, expiry_v
-  );
-  return this_id;
+  ));
+  return disclose(this_id);
 }
 
 // Disclosed funding — public escrow total.
-export circuit fund(amount: Int<64>): [] {
+export circuit fund(amount: Uint<64>): [] {
   assert(amount > 0, "INSUFFICIENT_FUNDING");
   assert(status == PolicyStatus.active || status == PolicyStatus.triggered, "POLICY_INACTIVE");
-  funded = funded + amount;
+  const public_amount = disclose(amount);
+  funded = (funded + public_amount) as Uint<64>;
 }
 
 // Enrollment: the holder secret arrives as a private witness; ONLY the
 // commitment H_elig(policyId, secret) is disclosed and stored. The holder
 // pays the premium into escrow at enrollment (mirrors the reference
 // runtime: enrollHolder(policyId, commitment, premiumPaid, now)).
-export circuit enroll(premium_paid: Int<64>): Bytes<32> {
+export circuit enroll(premium_paid: Uint<64>): Bytes<32> {
   assert(status == PolicyStatus.active, "POLICY_INACTIVE");
   assert(!enrolled, "ALREADY_ENROLLED");
   assert(premium_paid >= premium, "PREMIUM_REQUIRED");
@@ -205,16 +217,16 @@ export circuit enroll(premium_paid: Int<64>): Bytes<32> {
   const commitment  = derive_eligibility_c(secret, policy_id);
   enrollment_commitment = disclose(commitment);
   enrolled = true;
-  funded   = funded + premium_paid;
-  return commitment;
+  funded   = (funded + disclose(premium_paid)) as Uint<64>;
+  return disclose(commitment);
 }
 
 // Trigger recording: two distinct source digests with AGREEING outcome are
 // required (fail-closed on conflict). Readings and outcome are public —
 // verifiable fairness of the trigger.
 export circuit record_trigger(
-  value1: Int<64>,
-  value2: Int<64>,
+  value1: Uint<64>,
+  value2: Uint<64>,
   source1: Bytes<32>,
   source2: Bytes<32>,
 ): [] {
@@ -225,11 +237,13 @@ export circuit record_trigger(
   const outcome2 = compare(value2, threshold, op);
   assert(outcome1 == outcome2, "TRIGGER_CONFLICT");
 
+  // Lower median of the two agreeing readings (division-free; Compact has
+  // no integer division). Mirrors medianOf in the TS reference runtime.
   trigger_fired   = disclose(outcome1);
   trigger_recorded = true;
-  trigger_value   = disclose((value1 + value2) / 2); // median of two readings
-  trigger_source1 = source1;
-  trigger_source2 = source2;
+  trigger_value   = disclose(min2(value1, value2));
+  trigger_source1 = disclose(source1);
+  trigger_source2 = disclose(source2);
   status          = PolicyStatus.triggered;
 }
 
@@ -243,7 +257,7 @@ export circuit begin_settling(): [] {
 }
 
 // Lazy expiry: flips any pre-terminal policy past its window to EXPIRED.
-export circuit expire(now: Int<64>): [] {
+export circuit expire(now: Uint<64>): [] {
   assert(
     status == PolicyStatus.active || status == PolicyStatus.triggered || status == PolicyStatus.settling,
     "POLICY_INACTIVE"
@@ -253,30 +267,37 @@ export circuit expire(now: Int<64>): [] {
 }
 
 // Mark settled/denied from the settlement instance after receipt publication.
-export circuit mark_settled(did_settle: Boolean): [] {
+// Two branch-free entry points instead of one boolean-parametrized circuit:
+// Compact forbids branching on a private argument (implicit disclosure), and
+// the receipt status is public data anyway.
+export circuit mark_settled(): [] {
   assert(status == PolicyStatus.settling, "POLICY_INACTIVE");
-  if (did_settle) {
-    status = PolicyStatus.settled;
-  } else {
-    status = PolicyStatus.denied;
-  }
+  status = PolicyStatus.settled;
+}
+
+export circuit mark_denied(): [] {
+  assert(status == PolicyStatus.settling, "POLICY_INACTIVE");
+  status = PolicyStatus.denied;
 }
 
 // Insurer withdrawal of the unclaimed escrow remainder after terminal state.
 // The paid-out amount is derivable from public terms — leaks nothing.
-export circuit withdraw(): Int<64> {
+export circuit withdraw(): Uint<64> {
   assert(
     status == PolicyStatus.settled || status == PolicyStatus.denied || status == PolicyStatus.expired,
     "EXPIRY_REQUIRED"
   );
-  var paid_out: Int<64> = 0;
   if (status == PolicyStatus.settled) {
-    paid_out := payout;
+    const remainder = (funded - payout) as Uint<64>;
+    funded = 0;
+    status = PolicyStatus.closed;
+    return remainder;
+  } else {
+    const remainder = funded;
+    funded = 0;
+    status = PolicyStatus.closed;
+    return remainder;
   }
-  const remainder = funded - paid_out;
-  funded = 0;
-  status = PolicyStatus.closed;
-  return remainder;
 }
 
 // The nullifier derivation, embedded for parity with settlement.compact.
