@@ -48,10 +48,10 @@ describe('median', () => {
     expect(medianOf([5, 1, 9])).toBe(5);
     expect(medianOf([4000, 3600, 2000])).toBe(3600);
   });
-  it('even count → floor of the mean of the two middle values', () => {
-    expect(medianOf([4000, 3600])).toBe(3800);
-    expect(medianOf([1, 2])).toBe(1); // 1.5 floors to 1, mirroring the circuit
-    expect(medianOf([10, 20, 30, 40])).toBe(25);
+  it('even count → lower of the two middle values (mirrors the min2 circuit)', () => {
+    expect(medianOf([4000, 3600])).toBe(3600);
+    expect(medianOf([1, 2])).toBe(1);
+    expect(medianOf([10, 20, 30, 40])).toBe(20);
   });
   it('is order-independent', () => {
     expect(medianOf([9, 1, 5])).toBe(medianOf([1, 5, 9]));
@@ -63,7 +63,7 @@ describe('2-source rule', () => {
     const flow = fullFlow({ upTo: 'triggered', triggerValues: [4000, 3600] });
     const record = flow.triggerRecord!;
     expect(record.outcome).toBe(true);
-    expect(record.observedValue).toBe(3800);
+    expect(record.observedValue).toBe(3600);
     expect(record.readings).toHaveLength(2);
     expect(record.readings.map((r) => r.sourceId)).toEqual([
       sourceIdDigest(SOURCE_A),
@@ -72,14 +72,14 @@ describe('2-source rule', () => {
     const events = flow.runtime.publicLedger.listEvents();
     const last = events[events.length - 1]!;
     expect(last.type).toBe('TriggerRecorded');
-    expect(last.data.observedValue).toBe(3800);
+    expect(last.data.observedValue).toBe(3600);
     expect(last.data.outcome).toBe(true);
   });
 
   it('records a NEGATIVE outcome when sources agree it did not fire', () => {
     const flow = fullFlow({ upTo: 'triggered', triggerValues: [2000, 2200] });
     expect(flow.triggerRecord!.outcome).toBe(false);
-    expect(flow.triggerRecord!.observedValue).toBe(2100);
+    expect(flow.triggerRecord!.observedValue).toBe(2000);
     const last = flow.runtime.publicLedger.listEvents().at(-1)!;
     expect(last.type).toBe('TriggerRecorded');
     expect(last.data.outcome).toBe(false);

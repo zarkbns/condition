@@ -189,6 +189,17 @@ export function payoutCommitmentOf(amount: bigint): Bytes32 {
   return digest(DOMAIN_TAGS.amount, fieldFromInt(amount));
 }
 
+/**
+ * Reading digest H("condition:reading:v1", sourceId, value) — the sort key
+ * for canonical witness reading order. The claimant's client orders
+ * readings digest-ascending before supplying reading1/reading2 witnesses,
+ * matching witnessDigestOf's canonical preimage (mirrors reading_digest_c
+ * in settlement.compact).
+ */
+export function readingDigestOf(sourceId: Bytes32, value: number): Bytes32 {
+  return digest(DOMAIN_TAGS.reading, fieldFromBytes32(sourceId), fieldFromInt(value));
+}
+
 // ---------------------------------------------------------------------------
 // Proof digests
 // ---------------------------------------------------------------------------

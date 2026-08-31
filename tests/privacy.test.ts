@@ -257,7 +257,7 @@ describe('Invariant 5 — policy transparency', () => {
       (e) => e.type === 'TriggerRecorded',
     )!;
     expect(triggerEvent.data.outcome).toBe(true);
-    expect(triggerEvent.data.observedValue).toBe(3800);
+    expect(triggerEvent.data.observedValue).toBe(3600);
     expect(triggerEvent.data.sourceIds).toHaveLength(2);
   });
 });

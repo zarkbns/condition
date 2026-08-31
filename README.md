@@ -1,6 +1,6 @@
 # Condition – Privacy-Preserving Parametric Insurance on Midnight
 
-**Status:** Wave 1 complete — full loop implemented, 146 tests green, frontend builds.
+**Status:** Real contracts compiled (compactc 0.30.0), executing on the real Midnight runtime with full cross-layer digest parity — 153 tests green, live end-to-end lifecycle demo.
 
 ## What is Condition?
 
@@ -63,7 +63,25 @@ Web2 insurance:
 
 ### Why two layers?
 
-The Compact compiler is a native OCaml binary (glibc platforms). This repo is developed on Android/Termux, so it ships the canonical Compact sources **plus** a TypeScript reference runtime that implements the identical state machine, hash schemes, and privacy boundary. The test suite drives the reference runtime; `npm run build:contracts` compiles the real contracts wherever the toolchain exists. `tests/compactParity.test.ts` pins the digests both layers must reproduce.
+The canonical Compact sources are the deployed truth; the TypeScript reference runtime is the executable specification used by the frontend and the test suite. **The two layers are proven identical**: `tests/twoLayerParity.test.ts` runs the complete lifecycle on BOTH the TS reference runtime AND the real compiled Compact circuits executing on the real `@midnight-ntwrk/compact-runtime`, asserting byte-identical digests at every stage — policyId, termsDigest, enrollment commitment, nullifier, statement, proof hash, and settlement receipt id.
+
+`npm run build:contracts` compiles the real contracts with compactc 0.30.0 (works on Android/Termux via proot, and on any glibc/macOS host). Circuit identities (sha256 of each verifier key + zkir) are recorded in `deploy/artifacts.json`.
+
+---
+
+## Live End-to-End Proof
+
+```bash
+npx tsx scripts/demo-lifecycle.ts
+```
+
+Runs the full claim state machine on both layers with per-stage parity checks and live output:
+
+```
+policy ACTIVE → claim SUBMITTED → ZK VERIFIED → settlement EXECUTED → payout CONFIRMED (PAID)
+```
+
+Every stage shows the real compiled circuit executing on the real Midnight runtime (`create()`, `fund()`, `enroll()`, `record_trigger()`, `link()`, `settle()`) and asserts the digest it produced equals the TS reference runtime's — including the receipt id and the on-chain proof hash. A double-claim attempt against the same nullifier is rejected live. `--json` emits machine-readable output.
 
 ---
 
@@ -71,9 +89,10 @@ The Compact compiler is a native OCaml binary (glibc platforms). This repo is de
 
 ```bash
 npm install        # deps + android swc shim (no-op elsewhere)
-npm test           # 146 tests: policy, trigger, claim, settlement, zk, privacy, parity
-npm run build      # typecheck + compile TS + contracts (if toolchain present)
+npm test           # 153 tests: policy, trigger, claim, settlement, zk, privacy, parity, two-layer
+npm run build      # typecheck + compile TS + contracts (compactc, incl. Termux via proot)
 npm run build:frontend
+npx tsx scripts/demo-lifecycle.ts   # live two-layer lifecycle demo
 npm run dev        # http://localhost:3000
 ```
 
@@ -82,7 +101,7 @@ Then in the browser:
 2. `/claim` — enroll, record a 2-source trigger, generate the proof client-side, settle
 3. `/receipt` — browse + verify public receipts
 
-`npm run deploy` runs a full-loop dry-run against the reference runtime on any platform (writes `deploy/deployments.json`).
+`npm run deploy` attempts a real testnet deployment (Midnight JS SDK: wallet → providers → `deployContract`), recording contract addresses and tx hashes. When Midnight endpoints are unreachable (e.g. this build environment's network), it falls back to local real-runtime verification of the same compiled contracts and records the honest blocker with evidence. Every run writes `deploy/deployments.json`; circuit identities live in `deploy/artifacts.json`. Secrets are read only from `process.env` — never committed.
 
 ---
 
@@ -117,12 +136,14 @@ condition/
 │
 ├── tests/                       # Vitest suites (BUILD_SPEC §9)
 │   ├── privacy.test.ts          # ⭐ adversarial invariant enforcement
+│   ├── twoLayerParity.test.ts   # ⭐ compiled circuits vs TS runtime, digest-identical
 │   ├── compactParity.test.ts    # NIST vectors + golden digest pins
 │   ├── policy / trigger / claim / settlement / zk
 │   └── helpers.ts               # fullFlow() fixture
 │
-├── deploy/deploy.ts             # Reference dry-run / testnet deploy entry
-└── scripts/                     # build-contracts, postinstall (android swc shim), gen-vectors
+├── deploy/deploy.ts             # Testnet deploy (midnight-js) / local real-runtime verification
+├── deploy/artifacts.json        # Circuit identities (verifier key + zkir hashes) — committed
+└── scripts/                     # build-contracts, demo-lifecycle, gen-artifacts, postinstall, gen-vectors
 ```
 
 ---
@@ -174,8 +195,9 @@ Details: `docs/WAVES.md` · Spec: `BUILD_SPEC.md`
 ## Testing
 
 ```bash
-npm test                                 # full suite (146 tests)
+npm test                                 # full suite (153 tests)
 npx vitest run tests/privacy.test.ts     # just the invariant suite
+npx vitest run tests/twoLayerParity.test.ts   # compiled-circuit vs reference parity
 ```
 
 Covers: policy lifecycle, trigger semantics + conflicts, claim windows, proof
@@ -190,10 +212,11 @@ atomicity, and the six privacy invariants.
 npm run deploy
 ```
 
-On platforms with the Compact toolchain: compiles contracts, deploys to testnet
-(`MIDNIGHT_NODE_URL`). Elsewhere: runs the full Wave 1 loop against the
-reference runtime as a dry-run and records the result. Secrets are read only
-from `process.env` — never committed.
+Three tiers, best-first:
+
+1. **Testnet** — needs `MIDNIGHT_NODE_URL` reachable + `MIDNIGHT_WALLET_SEED` (funded testnet seed, env-only). Deploys the compiled contracts via the real Midnight JS SDK and records contract addresses + tx hashes.
+2. **Local real-runtime** — when Midnight endpoints are unreachable, the same compiled contracts execute on the real `@midnight-ntwrk/compact-runtime` locally: full lifecycle, digest parity, recorded as evidence in `deploy/deployments.json`.
+3. **Reference dry-run** — no compiled contracts: TS reference loop only.
 
 ---
 
@@ -201,6 +224,8 @@ from `process.env` — never committed.
 
 - `BUILD_SPEC.md` — complete protocol spec (start here)
 - `tests/privacy.test.ts` — the thesis, mechanically enforced
+- `tests/twoLayerParity.test.ts` — compiled circuits == reference runtime, proven
+- `scripts/demo-lifecycle.ts` — the live two-layer lifecycle demo
 - `src/core/hashing.ts` — domain-separated digest scheme
 - `contracts/settlement.compact` — the private settlement circuit
 - `docs/MIDNIGHT_NOTES.md` — platform + toolchain reality

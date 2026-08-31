@@ -73,9 +73,9 @@ const GOLDEN_COMMITMENT = '0x4aa2895f8d63f734caf376fa924c8e2cd86aa3723bfeef164cc
 const GOLDEN_NULLIFIER = '0x6d99f6e80e5143764c172c081d1c5cfd1a86ebf240bfd9cbdf574de9840b176d';
 const GOLDEN_PAYOUT_COMMITMENT = '0x548ab6b8c998df69bdfe91f7f6ec319d39713d5eabfc9205ccf43e9ee7b1963e';
 const GOLDEN_STATEMENT = '0x794cbc7998696c6970481ce030f9729d749a94edfadb14aa7e8d4308be999b4a';
-const GOLDEN_WITNESS_DIGEST = '0xeb7129b82908b683dea102b8818c1a20efd1c951af78a2fdc87d5adddad0afbc';
-const GOLDEN_PROOF_HASH = '0x10f11608303329cc6f618f1578294dfeb356c67d927311eec0c4d4e23b883b4a';
-const GOLDEN_RECEIPT_ID = '0xe17778a9551c0982e1434c16e89d10f22e547b600e22ff5d7291130c90bf6178';
+const GOLDEN_WITNESS_DIGEST = '0x220b333a83b041337930947f77e10aee8ce69789e1b2bcb4015bc692fc0ef006';
+const GOLDEN_PROOF_HASH = '0x077ffea14647557cae5e66bb83785f0631d928396f6322f0040c487a1dac9415';
+const GOLDEN_RECEIPT_ID = '0x623ea2d7240d3f77e74e95ab8b2d0896139a6f2fbde643c149c6ad676453008b';
 const GOLDEN_SOURCE_METEO = '0xc05df1274a22559d7b6c8b4c75d53cb01fb7d5439cd4fb58dd0a8b7b50838b5e';
 
 const goldenWitness = (): ClaimWitness => ({
@@ -89,7 +89,7 @@ const goldenWitness = (): ClaimWitness => ({
       { sourceId: sourceIdDigest('noaa'), value: 3600 },
     ],
     outcome: true,
-    observedValue: 3800,
+    observedValue: 3600,
     recordedAt: T_TRIGGER,
   },
 });

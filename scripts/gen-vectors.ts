@@ -73,7 +73,7 @@ const witness = {
       { sourceId: sourceIdDigest('noaa'), value: 3600 },
     ],
     outcome: true,
-    observedValue: 3800,
+    observedValue: 3600,
     recordedAt: 1_700_020_000,
   },
 };

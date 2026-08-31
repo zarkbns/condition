@@ -1,0 +1,85 @@
+{
+  "generatedAt": "2026-08-31T22:47:01.727Z",
+  "toolchain": "compactc 0.30.0 (aarch64-unknown-linux-musl, via proot on Android/Termux)",
+  "contracts": {
+    "proofs": {
+      "compiler": {
+        "compilerVersion": "0.30.0",
+        "languageVersion": "0.22.0",
+        "runtimeVersion": "0.15.0"
+      },
+      "circuits": {}
+    },
+    "policy": {
+      "compiler": {
+        "compilerVersion": "0.30.0",
+        "languageVersion": "0.22.0",
+        "runtimeVersion": "0.15.0"
+      },
+      "circuits": {
+        "create": {
+          "verifierKeyHash": "12d7e053de7baf375a5d3d93bfb382b3fbfb2c887aab10f212bfd607ee8b4796",
+          "zkirHash": "004b69ac028912d2574ce2a068bbd3934818d97babf08555a251b92dab38ae84"
+        },
+        "fund": {
+          "verifierKeyHash": "63589744a1bc3e97ad4931425c20ddc60650592bdbc69e778a1faf61a73f1b8d",
+          "zkirHash": "0de2e8f01d638e7e335892d05ac980e06109391cdf3608acae11efc271a74df1"
+        },
+        "enroll": {
+          "verifierKeyHash": "cabe464701e75b0d6345d6a3cd1730687e20c851adf9144a913edcc9f8b5d395",
+          "zkirHash": "cfe27f67ed9a1e8104efe3590569a91864a62fc3121bdb8ad878b4a339b7117f"
+        },
+        "record_trigger": {
+          "verifierKeyHash": "c1379f6af69369559e2fd1742aa3b62e228e0ebd6316da28a100a2230f418118",
+          "zkirHash": "da19e552615fb5e66e9a8d8d7c9b4b04aeec30cf24fdc52555b0b76693d03092"
+        },
+        "begin_settling": {
+          "verifierKeyHash": "1304fa0e7a5e54da120f3766fd3f78ff7c33a8eb3633a7f523609791ad029dcf",
+          "zkirHash": "0fae6df2a7446717ae07554e338fc37d69cb692c4aac376201648c5e20f38241"
+        },
+        "expire": {
+          "verifierKeyHash": "aaf9519b2a80eaf08f28afc9d921691f374d9e8bdfcbd2f5102b27e7380f1ca1",
+          "zkirHash": "212d2680afa352c6547ed4d66d00286a0fd98233b43ff50d81e74fd6d2eb9bf3"
+        },
+        "mark_settled": {
+          "verifierKeyHash": "8d194fd2cf580b80acfac50e07400e3479580d1968471cbeebef84f5d0442e47",
+          "zkirHash": "69b4fd6d1a474a92010010900e0d9016200b79fbc59923c124c28024267032c2"
+        },
+        "mark_denied": {
+          "verifierKeyHash": "2f0e1e3b9b9dae66ba7b10b01f51c3a0e073e7190853d62d50b08b8b3f846ebd",
+          "zkirHash": "c1ed492054092d334ca94bf728bced6deaa61b1c1d55c994154b70852799c279"
+        },
+        "withdraw": {
+          "verifierKeyHash": "4375871a20c4c7f2b3ad1af15922dca3cc791d0b7884bf6c348d19e7de86573a",
+          "zkirHash": "46ed0004e5368ba543632b57f5d77bda69bc6f85942cabb67e060bfb075aa43c"
+        }
+      }
+    },
+    "settlement": {
+      "compiler": {
+        "compilerVersion": "0.30.0",
+        "languageVersion": "0.22.0",
+        "runtimeVersion": "0.15.0"
+      },
+      "circuits": {
+        "link": {
+          "verifierKeyHash": "b034fd523b225cbebd812be41c72814234352e63e4419bd1ea6a80c988e6aac8",
+          "zkirHash": "b425ac6d5a7dabd7b5d56f80a0b0504a6b69034cec7073fda6f3ae7e7f949621"
+        },
+        "settle": {
+          "verifierKeyHash": "9821c12c44a9524116ee9b638e5316ba972023cc7d206809cffb8b502b4e5e2a",
+          "zkirHash": "58ec8575a87c711e9e03fdea4f4724d672f808521b64d7ed0a36580ac0ed6647"
+        },
+        "settled_total": {
+          "verifierKeyHash": "0a1c55ea360176f339795ae1aa4a138a303c3e030593b933d69313620aee5023",
+          "zkirHash": "85fcdd50314098bbbce3d7ad91e16c21d2b867fccaa5d5512acadf05897afe89"
+        },
+        "denied_total": {
+          "verifierKeyHash": "94e91fb6b936e5bb597fc475270f69a52ad29ee78f1a12a42dcb87fa060fe22e",
+          "zkirHash": "b581951d34fd055a3a59ea3f4155b9c1a8e34efdb2bac399d8b35ae0236f521b"
+        }
+      }
+    }
+  },
+  "note": "Circuit identities extracted from real compactc 0.30.0 output: verifierKeyHash = sha256(<circuit>.verifier), zkirHash = sha256(<circuit>.zkir). The managed/ dir itself is gitignored (size); these hashes pin exactly what was compiled. Reproduce: npm run build:contracts && npx tsx scripts/gen-artifacts.ts"
+}

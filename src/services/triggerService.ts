@@ -31,8 +31,10 @@ export function evaluateTrigger(value: number, threshold: number, operator: Comp
 }
 
 /**
- * Median of agreeing readings. Even counts take the floor of the mean of the
- * two middle values — deterministic, mirrors the Compact circuit.
+ * Median of agreeing readings. Even counts take the LOWER of the two middle
+ * values — division-free and identical to the `min2` circuit in
+ * policy.compact (Compact has no integer division), so both layers hash the
+ * same observed value into the witness digest.
  */
 export function medianOf(values: number[]): number {
   const sorted = [...values].sort((a, b) => a - b);
@@ -40,9 +42,7 @@ export function medianOf(values: number[]): number {
   if (sorted.length % 2 === 1) {
     return sorted[mid]!;
   }
-  const a = sorted[mid - 1]!;
-  const b = sorted[mid]!;
-  return Math.floor((a + b) / 2);
+  return sorted[mid - 1]!;
 }
 
 export class TriggerService {

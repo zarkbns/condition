@@ -18,6 +18,6 @@
     "declaration": true,
     "types": ["node"]
   },
-  "include": ["src/**/*.ts", "tests/**/*.ts", "deploy/**/*.ts"],
+  "include": ["src/**/*.ts", "tests/**/*.ts", "deploy/**/*.ts", "scripts/**/*.ts"],
   "exclude": ["node_modules", "dist", "frontend"]
 }
