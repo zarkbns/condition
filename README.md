@@ -1,17 +1,18 @@
 # Condition – Privacy-Preserving Parametric Insurance on Midnight
 
-**Status:** Wave 1 MVP — Privacy + Fraud Prevention
+**Status:** Wave 1 complete — full loop implemented, 146 tests green, frontend builds.
 
 ## What is Condition?
 
 Condition is a parametric insurance protocol where policies are transparent, claims settle privately, and fairness is proven publicly without revealing claimant identity.
 
 ```
-Policy Created → Funded → Event Verified → Claim Submitted (Private)
-  → Settlement Executed (Private) → Proof Receipt Generated (Public)
+Policy Created → Funded → Holder Enrolls (commitment only) → Trigger Cross-Verified (2 sources, public)
+  → Claim Submitted (private) → Proof Generated (client-side ZK) → Settlement Executed (private)
+  → Proof Receipt Published (public: proof hash + status — no amounts, no identities)
 ```
 
-**Core Innovation:** Zero-knowledge proofs prove settlement fairness without revealing claimant identity, claim amount, or personal details.
+**Core thesis:** prove settlement fairness without revealing who claimed.
 
 ---
 
@@ -21,335 +22,189 @@ Traditional parametric insurance (e.g., Etherisc):
 - ✅ Fast automatic payouts when triggers activate
 - ✅ Clear, transparent trigger conditions
 - ❌ Everything is public — privacy violation for claimants
-- ❌ Users can't verify they were treated fairly without reading code
 
 Web2 insurance:
 - ✅ Privacy (your claim is private)
 - ❌ You have to trust the company
 - ❌ No proof of fair settlement
 
-**Condition solves this:** Prove settlement is fair (via ZK) without revealing who claimed.
+**Condition solves this:** ZK proofs prove settlement is fair without revealing who claimed.
 
 ---
 
 ## How It Works
 
-Condition separates ledgers and proofs:
-
 | Layer | Contents | Visibility |
 |-------|----------|------------|
-| **Public Ledger** | Policies, trigger events, proof receipts | Everyone |
-| **Private Ledger** | Claimant ID, claim data, settlement amount | Only claimant + settlement contract |
-| **ZK Proofs** | Proof that settlement is correct | Public (proof hash only; witness never revealed) |
+| **Public Ledger** | Policies, terms, escrow totals, trigger events, nullifiers, proof receipts | Everyone |
+| **Private Ledger** | Holder secret, settlement amounts, shielded balances | Only the claimant |
+| **ZK Proofs** | Eligibility + nullifier + payout binding; witness never revealed | Proof hash only |
 
-**Claim Flow:**
-1. Claimant submits claim with proof they're policy holder (private)
-2. Settlement service verifies trigger, computes settlement amount (private)
-3. ZK proof generated client-side proving: "settlement is correct given policy terms" (private)
-4. Proof hash published to public ledger as receipt
-5. Anyone can verify: settlement was fair, proof is valid, no identity leaked
+**Claim flow:**
+1. Insurer creates a policy — terms are public and immutable
+2. Holder enrolls locally — only `H(policyId, secret)` is published
+3. Trigger fires — two independent sources must agree (fail-closed)
+4. Holder claims — proof generated **in their browser**: "I hold the secret for this policy's commitment; the nullifier is fresh; the payout matches the deterministic terms"
+5. Settlement publishes a receipt — proof hash + status + timestamp, nothing else
+6. Anyone verifies the receipt from public data alone
+
+**The payout is deterministic from public terms** — nobody, not even the claimant, chooses the amount. The proof binds the holder to exactly that amount via a commitment, so receipts never need to reveal it.
 
 ---
 
 ## Tech Stack
 
-- **Smart Contracts:** Midnight Compact (privacy-first language)
-- **Backend:** TypeScript + Midnight.js SDK
-- **Frontend:** Next.js + React
-- **ZK Proofs:** Native Midnight ZK (client-side generation)
-- **Testing:** Jest (contracts) + Playwright (frontend)
-- **Deployment:** Midnight testnet / stagenet
+- **Contracts:** Midnight Compact (`contracts/*.compact`, language_version 0.16–0.22)
+- **Reference runtime:** TypeScript (`src/core` + `src/services`) — the executable spec
+- **Frontend:** Next.js 14 (Pages Router), React 18
+- **ZK proofs:** Client-side generation (browser, in-process; zero API routes)
+- **Testing:** Vitest (146 tests incl. adversarial privacy suite)
+- **Hashing:** Hand-rolled SHA-256, pinned to NIST FIPS 180-4 vectors, zero runtime deps
+
+### Why two layers?
+
+The Compact compiler is a native OCaml binary (glibc platforms). This repo is developed on Android/Termux, so it ships the canonical Compact sources **plus** a TypeScript reference runtime that implements the identical state machine, hash schemes, and privacy boundary. The test suite drives the reference runtime; `npm run build:contracts` compiles the real contracts wherever the toolchain exists. `tests/compactParity.test.ts` pins the digests both layers must reproduce.
 
 ---
 
 ## Quick Start
 
 ```bash
-# Install dependencies
-npm install
-
-# Build contracts (Midnight Compact)
-npm run build
-
-# Run tests
-npm run test
-
-# Start dev frontend
-npm run dev
+npm install        # deps + android swc shim (no-op elsewhere)
+npm test           # 146 tests: policy, trigger, claim, settlement, zk, privacy, parity
+npm run build      # typecheck + compile TS + contracts (if toolchain present)
+npm run build:frontend
+npm run dev        # http://localhost:3000
 ```
 
-Then open http://localhost:3000 and:
-1. Create a policy (public)
-2. Fund it (public)
-3. Trigger fires (public event)
-4. Submit private claim
-5. Receive proof receipt (public)
+Then in the browser:
+1. `/policy` — create + fund a policy (public)
+2. `/claim` — enroll, record a 2-source trigger, generate the proof client-side, settle
+3. `/receipt` — browse + verify public receipts
+
+`npm run deploy` runs a full-loop dry-run against the reference runtime on any platform (writes `deploy/deployments.json`).
 
 ---
 
 ## Project Structure
 
 ```
-condition-midnight/
-├── AGENT.md                      # AI agent build instructions (READ THIS IF YOU'RE AN AGENT)
-├── BUILD_SPEC.md                 # Complete technical specification
-├── README.md                     # This file
+condition/
+├── AGENTS.md                    # Agent operational contract
+├── BUILD_SPEC.md                # Complete technical spec (source of truth)
+├── README.md                    # This file
 │
-├── contracts/
-│   ├── policy.compact            # Policy creation, funding, trigger verification
-│   ├── settlement.compact         # Settlement execution (references proofs, not claimant data)
-│   └── proofs.compact            # ZK circuit definitions
+├── contracts/                   # Canonical Compact sources (compile on glibc)
+│   ├── policy.compact           # Policy lifecycle, escrow, enrollment commitment
+│   ├── settlement.compact       # Nullifier registry, private settle circuit, receipts
+│   └── proofs.compact           # ZK circuit library (digests, payout function)
 │
 ├── src/
-│   ├── services/
-│   │   ├── policyService.ts      # Create, list, fund policies
-│   │   ├── claimService.ts       # Submit claims, generate ZK proofs
-│   │   ├── settlementService.ts  # Execute settlement, publish receipts
-│   │   └── triggerService.ts     # Monitor and verify trigger events
-│   ├── types/
-│   │   └── index.ts              # TypeScript interfaces (policy, claim, proof, receipt)
-│   └── utils/
-│       └── midnight.ts           # Midnight SDK initialization
+│   ├── core/                    # Reference runtime core
+│   │   ├── sha256.ts            # FIPS 180-4, NIST-pinned, zero deps
+│   │   ├── hashing.ts           # Domain-separated digests (the privacy boundary primitive)
+│   │   ├── zkProver.ts          # Client-side proof generation/verification
+│   │   ├── payout.ts            # Deterministic payout function
+│   │   ├── publicLedger.ts      # Public state machine + event trail
+│   │   └── privateLedger.ts     # Holder secrets, shielded balances (claimant-side)
+│   ├── services/                # Protocol flows (policy, trigger, claim, settlement)
+│   ├── types/                   # Shared domain model + error catalog
+│   └── utils/midnight.ts        # Runtime context factory
 │
-├── frontend/
-│   ├── pages/
-│   │   ├── policy.tsx            # Policy creation form
-│   │   ├── claim.tsx             # Claim submission form
-│   │   └── receipt.tsx           # View proof receipt
-│   ├── components/
-│   │   └── [...React components]
-│   └── styles/
+├── frontend/                    # Next.js Pages Router (zero API routes by design)
+│   ├── pages/                   # /, /policy, /claim, /receipt
+│   └── src/components/          # ConditionProvider (in-browser runtime context)
 │
-├── tests/
-│   ├── policy.test.ts            # Policy flow tests
-│   ├── claim.test.ts             # Claim + ZK proof tests
-│   └── settlement.test.ts        # Settlement logic tests
+├── tests/                       # Vitest suites (BUILD_SPEC §9)
+│   ├── privacy.test.ts          # ⭐ adversarial invariant enforcement
+│   ├── compactParity.test.ts    # NIST vectors + golden digest pins
+│   ├── policy / trigger / claim / settlement / zk
+│   └── helpers.ts               # fullFlow() fixture
 │
-├── deploy/
-│   ├── deployments.json          # Deployment addresses
-│   └── deploy.ts                 # Deployment script
-│
-├── docs/
-│   ├── ARCHITECTURE.md           # System design deep-dive
-│   ├── WAVES.md                  # Wave 1, 2, 3 roadmap
-│   └── MIDNIGHT_NOTES.md         # Midnight-specific integration notes
-│
-└── package.json
+├── deploy/deploy.ts             # Reference dry-run / testnet deploy entry
+└── scripts/                     # build-contracts, postinstall (android swc shim), gen-vectors
 ```
 
 ---
 
-## Core Concepts
+## Privacy Invariants (mechanically enforced)
 
-### Policy
+`tests/privacy.test.ts` serializes everything an outside observer can ever see and fails if any private field, value, or derivation appears:
 
-A parametric insurance contract:
-- **Insurer:** Address that funds the policy
-- **Claimant:** Anyone can claim if they trigger the condition
-- **Trigger Condition:** Objective, verifiable event (e.g., "temperature > 35°C on date X at location Y")
-- **Payout Amount:** Deterministic amount if trigger is true
-- **Expiry:** Policy expires after date X; no claims accepted after
+1. **Privacy boundary** — public ledger holds only allow-listed data; the holder secret never appears in any representation
+2. **ZK proof correctness** — proofs carry public inputs + digests only; witness never serialized, logged, or transmitted
+3. **Public receipt auditability** — receipts verifiable from public data alone; structurally amount-free
+4. **Settlement finality** — published receipts immutable; event trail append-only; failed settles revert atomically
+5. **Policy transparency** — full terms reconstructible from public events
+6. **No private data in contracts** — claimant-derived values cross the boundary only as domain-separated digests
 
-Policies are **always public**. Trigger terms are **always verifiable**.
-
-### Claim
-
-A claim is a request to settle against a policy:
-- **Policy ID:** Which policy
-- **Trigger Evidence:** Data proving trigger occurred (e.g., oracle reading, historical data)
-- **Proof of Policy Holder:** Credential proving claimant is eligible (private)
-- **Settlement Amount:** Computed from trigger + policy terms (private)
-
-Claims are **submitted privately**. No one learns who claimed unless they choose to reveal.
-
-### ZK Proof
-
-A zero-knowledge proof that settlement is fair:
-- **Public Input:** Policy ID, trigger outcome, proof hash
-- **Private Input (Witness):** Claimant ID, settlement amount, trigger evidence
-- **Proof Statement:** "Given this policy and trigger outcome, the settlement amount is X"
-- **Output:** Proof hash (published), proof verification succeeds on-chain, no witness revealed
-
-Proofs are **generated client-side** (in browser or trusted backend). Proof generation is **never logged or stored**.
-
-### Receipt
-
-A public receipt proving settlement happened:
-- **Policy ID:** Which policy
-- **Proof Hash:** ZK proof identifier
-- **Trigger Outcome:** Boolean (trigger activated or not)
-- **Settlement Status:** "SETTLED" or "DENIED" (no amount shown)
-- **Timestamp:** When receipt was issued
-
-Receipts are **always public**. They prove fairness without revealing identity.
+The suite is adversarial: forged proofs, wrong-secret griefing, nullifier replays, tampered statement/payout commitments, malicious single-oracle trigger attacks, linking attempts against the observer view.
 
 ---
 
-## Wave Progression
+## Wave Roadmap
 
-### Wave 1 (Current): Privacy + Fraud Prevention
-- Private claim submission
-- ZK-verified trigger logic
-- Client-side proof generation
-- Public proof receipts
-- Basic policy and claim UI
-- Test coverage: happy path, trigger failure, malicious proof
+### Wave 1 — Privacy + Fraud Prevention ✅ (this repo)
+- Private claim submission, client-side ZK proof generation, public receipts
+- 2-source trigger cross-verification (fail-closed)
+- Nullifier double-claim protection, griefing resistance
+- Full adversarial test suite; frontend demo
 
-### Wave 2: Verifiable Fairness + Audit Trail
-- Basis risk calculator (public)
-- Dispute resolution via ZK
-- Enhanced proof receipt detail
-- Batch claim analytics (privacy-preserving aggregates)
+### Wave 2 — Verifiable Fairness + Audit Trail
+- Basis-risk calculator, ZK dispute resolution, Merkle multi-holder, on-chain time quorum
 
-### Wave 3: User Adoption + Compliance
-- Educational dashboard
-- Regulatory compliance receipts
-- Integration with other Midnight dApps
-- Mobile app (native proof generation)
+### Wave 3 — Adoption + Compliance
+- PWA, education dashboard, compliance receipts
+
+Details: `docs/WAVES.md` · Spec: `BUILD_SPEC.md`
 
 ---
 
 ## Why Midnight?
 
-Midnight's architecture is perfect for Condition:
-
 | Feature | Benefit |
 |---------|---------|
-| Private + Public Ledger | Claims on private ledger, receipts on public; clean separation |
-| Client-Side ZK | Proof generation happens locally; no server-side witness exposure |
-| Compact Language | Clean, developer-friendly; easier to audit |
-| Native Privacy Proofs | No need to import external ZK libraries |
+| Private + Public Ledger | Claims private, receipts public; clean split |
+| Client-Side ZK | Proof generation local; no server sees the witness |
+| Compact Language | Small auditable circuits; digests mirror across layers |
+| Native Privacy | No external ZK libraries needed |
 
 ---
 
 ## Testing
 
-### Contract Tests
 ```bash
-npm run test
+npm test                                 # full suite (146 tests)
+npx vitest run tests/privacy.test.ts     # just the invariant suite
 ```
 
-Tests cover:
-- Policy creation and funding
-- Trigger verification
-- Claim processing
-- Settlement execution
-- ZK proof generation and verification
-
-### Frontend Tests (E2E)
-```bash
-npm run test:e2e
-```
-
-Tests cover:
-- Policy creation flow
-- Claim submission
-- Receipt viewing
-- Error handling
+Covers: policy lifecycle, trigger semantics + conflicts, claim windows, proof
+generation/tampering, double-claims, funding guards, DENIED paths, finality,
+atomicity, and the six privacy invariants.
 
 ---
 
-## Building & Deployment
+## Deployment
 
-### Build Contracts
-```bash
-npm run build
-```
-
-Compiles Compact contracts to WASM via Midnight.js SDK.
-
-### Deploy to Midnight Testnet
 ```bash
 npm run deploy
 ```
 
-Writes deployment addresses to `deploy/deployments.json`.
-
-### Start Frontend
-```bash
-npm run dev
-```
-
-Connects frontend to deployed contracts. Set `.env.local`:
-```
-NEXT_PUBLIC_POLICY_CONTRACT_ADDRESS=...
-NEXT_PUBLIC_SETTLEMENT_CONTRACT_ADDRESS=...
-MIDNIGHT_NODE_URL=https://testnet.midnight.network/rpc
-```
+On platforms with the Compact toolchain: compiles contracts, deploys to testnet
+(`MIDNIGHT_NODE_URL`). Elsewhere: runs the full Wave 1 loop against the
+reference runtime as a dry-run and records the result. Secrets are read only
+from `process.env` — never committed.
 
 ---
 
 ## Key Files to Read
 
-**If you're an AI agent:**
-- Start with `AGENT.md` (this is your contract)
-
-**If you're understanding the design:**
-- `BUILD_SPEC.md` (complete technical spec)
-- `docs/ARCHITECTURE.md` (system design)
-- `docs/MIDNIGHT_NOTES.md` (Midnight integration)
-
-**If you're building contracts:**
-- `contracts/*.compact` (policy, settlement, proofs)
-- `src/services/settlementService.ts` (settlement logic)
-
-**If you're building frontend:**
-- `frontend/pages/*.tsx` (forms and flows)
-- `src/services/claimService.ts` (claim logic)
+- `BUILD_SPEC.md` — complete protocol spec (start here)
+- `tests/privacy.test.ts` — the thesis, mechanically enforced
+- `src/core/hashing.ts` — domain-separated digest scheme
+- `contracts/settlement.compact` — the private settlement circuit
+- `docs/MIDNIGHT_NOTES.md` — platform + toolchain reality
 
 ---
 
-## Architecture Highlights
-
-### Privacy Boundary
-Claimant identity and claim details exist only on the private ledger. Settlement contracts reference proof hashes and trigger outcomes, never claimant data.
-
-### Settlement Finality
-Once a ZK proof is generated and the receipt published, settlement is irreversible. Refunds are possible only via a new policy or dispute process (Wave 2).
-
-### Proof Correctness
-ZK proofs prove settlement logic is correct without revealing inputs. Proof generation is **always client-side** so no server ever sees the witness.
-
-### Public Auditability
-Anyone can verify a receipt using only public data. If they want to verify *their own* claim, they use their private proof.
-
----
-
-## Roadmap
-
-**Wave 1 (Current):**
-- ✅ Privacy-preserving claim settlement
-- ✅ ZK proof generation and verification
-- ✅ Public proof receipts
-- ✅ Basic UI
-
-**Wave 2 (Next):**
-- Basis risk calculator
-- Dispute resolution
-- Batch analytics
-
-**Wave 3 (Future):**
-- Mobile app
-- Regulatory compliance
-- Cross-chain integration
-
----
-
-## Contributing
-
-See `AGENT.md` for build and contribution guidelines.
-
----
-
-## License
-
-TBD
-
----
-
-**Built for Midnight Buildathon 2026**
-
-For questions or deep dives:
-- Architecture: see `docs/ARCHITECTURE.md`
-- Midnight specifics: see `docs/MIDNIGHT_NOTES.md`
-- Technical spec: see `BUILD_SPEC.md`
+**Built for Midnight Buildathon 2026 — Privacy Track**
