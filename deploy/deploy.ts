@@ -2,8 +2,10 @@
 //
 // Three tiers, best-first:
 //
-//   1. TESTNET DEPLOY — requires MIDNIGHT_NODE_URL reachable + a funded
-//      wallet (seed via MIDNIGHT_WALLET_SEED env, never committed). Deploys
+//   1. PREPROD DEPLOY — requires MIDNIGHT_NODE_URL reachable + a funded
+//      wallet (seed via MIDNIGHT_WALLET_SEED env, never committed) and a
+//      proof server (no hosted Preprod prover exists — run a local Docker
+//      proof server or point MIDNIGHT_PROVER_URL at one). Deploys
 //      the compiled contracts with the real Midnight JS SDK
 //      (deployContract + wallet + indexer + proof providers) and records
 //      contract addresses + deploy tx hashes.
@@ -34,16 +36,20 @@ interface DeploymentRecord {
   network: string;
   deployedAt: string;
   /** tier that actually ran */
-  tier: 'testnet' | 'local-real-runtime' | 'reference-dry-run';
+  tier: 'preprod' | 'local-real-runtime' | 'reference-dry-run';
   contracts: Record<string, string>;
   transactionHashes?: string[];
   evidence?: Record<string, unknown>;
   note: string;
 }
 
-const INDEXER_HTTP = 'https://indexer.testnet-02.midnight.network/api/v1/graphql';
-const INDEXER_WS = 'wss://indexer.testnet-02.midnight.network/api/v1/graphql/ws';
-const PROVER_URL = 'https://prover.testnet-02.midnight.network';
+// Midnight Preprod — indexer API v4 (retired testnet-02 used /api/v1 and no
+// longer resolves).
+const INDEXER_HTTP = 'https://indexer.preprod.midnight.network/api/v4/graphql';
+const INDEXER_WS = 'wss://indexer.preprod.midnight.network/api/v4/graphql/ws';
+// No hosted Preprod prover exists — default to a local Docker proof server
+// (docker run -p 6300:6300 midnightntwrk/proof-server:latest midnight-proof-server -v).
+const DEFAULT_PROVER_URL = 'http://127.0.0.1:6300';
 
 async function probeNetwork(url: string): Promise<{ ok: boolean; detail: string }> {
   try {
@@ -75,7 +81,7 @@ function inMemoryPrivateState() {
   };
 }
 
-async function deployToTestnet(nodeUrl: string): Promise<DeploymentRecord> {
+async function deployToPreprod(nodeUrl: string): Promise<DeploymentRecord> {
   // Real SDK deployment. Dynamic imports so local tiers never touch the
   // network packages.
   const { WalletBuilder } = await import('@midnight-ntwrk/wallet');
@@ -100,24 +106,31 @@ async function deployToTestnet(nodeUrl: string): Promise<DeploymentRecord> {
   const seed = process.env['MIDNIGHT_WALLET_SEED'];
   if (!seed) {
     throw new Error(
-      'testnet deploy requires MIDNIGHT_WALLET_SEED (a funded testnet seed; never commit it)',
+      'preprod deploy requires MIDNIGHT_WALLET_SEED (a funded preprod seed; never commit it)',
     );
   }
+  const proverUrl = process.env['MIDNIGHT_PROVER_URL'] ?? DEFAULT_PROVER_URL;
 
   // Naive wallet built from the seed — sufficient for contract deployment.
+  // WalletBuilder keeps zswap's numeric NetworkId.TestNet: zswap@4 has no
+  // dedicated Preprod member and Preprod is that persistent testnet.
   const wallet = await WalletBuilder.buildFromSeed(
     INDEXER_HTTP,
     INDEXER_WS,
-    PROVER_URL,
+    proverUrl,
     nodeUrl,
     seed,
     NetworkId.TestNet,
   );
+  // midnight-js consumes the string network id ('preprod') for tx
+  // construction and key parsing, and throws if it was never set.
+  const { setNetworkId } = await import('@midnight-ntwrk/midnight-js-network-id');
+  setNetworkId('preprod');
   try {
     const privateStateProvider = inMemoryPrivateState();
     const zkConfigProvider = new NodeZkConfigProvider(join(root, 'contracts', 'managed'));
     const publicDataProvider = indexerPublicDataProvider(INDEXER_HTTP, INDEXER_WS);
-    const proofProvider = httpClientProofProvider(PROVER_URL, zkConfigProvider);
+    const proofProvider = httpClientProofProvider(proverUrl, zkConfigProvider);
 
     // The wallet doubles as walletProvider (balancing/keys) and
     // midnightProvider (tx submission).
@@ -153,14 +166,14 @@ async function deployToTestnet(nodeUrl: string): Promise<DeploymentRecord> {
     return {
       network: nodeUrl,
       deployedAt: new Date().toISOString(),
-      tier: 'testnet',
+      tier: 'preprod',
       contracts: Object.fromEntries(
         deployed.map((d) => [d.name, d.address ?? d.txHash ?? 'deployed']),
       ),
       transactionHashes: deployed
         .map((d) => d.txHash)
         .filter((h): h is string => typeof h === 'string'),
-      note: 'Deployed compiled Compact contracts to Midnight testnet via midnight-js.',
+      note: 'Deployed compiled Compact contracts to Midnight Preprod via midnight-js.',
     };
   } finally {
     await wallet.close();
@@ -209,7 +222,7 @@ async function localRealRuntime(): Promise<DeploymentRecord> {
       demoLog: 'npx tsx scripts/demo-lifecycle.ts',
     },
     note:
-      'Compiled contracts (compactc 0.30.0, same artifacts that deploy to testnet) ' +
+      'Compiled contracts (compactc 0.30.0, same artifacts that deploy to Preprod) ' +
       'executed on the real Midnight compact-runtime; full lifecycle + digest parity verified.',
   };
 }
@@ -233,7 +246,7 @@ function referenceDryRun(): DeploymentRecord {
 
 async function main(): Promise<void> {
   console.log('condition deploy');
-  const nodeUrl = process.env['MIDNIGHT_NODE_URL'] ?? 'https://rpc.testnet-02.midnight.network';
+  const nodeUrl = process.env['MIDNIGHT_NODE_URL'] ?? 'https://rpc.preprod.midnight.network';
   const compiled = existsSync(managed('policy'));
 
   let record: DeploymentRecord;
@@ -245,13 +258,13 @@ async function main(): Promise<void> {
 
   if (probe.ok) {
     try {
-      record = await deployToTestnet(nodeUrl);
-      console.log('testnet deployment succeeded');
+      record = await deployToPreprod(nodeUrl);
+      console.log('preprod deployment succeeded');
     } catch (err) {
-      console.error(`testnet deploy failed: ${err instanceof Error ? err.message : err}`);
+      console.error(`preprod deploy failed: ${err instanceof Error ? err.message : err}`);
       console.log('falling back to local real-runtime verification');
       record = compiled ? await localRealRuntime() : referenceDryRun();
-      record.note = `testnet attempt failed (${
+      record.note = `preprod attempt failed (${
         err instanceof Error ? err.message : err
       }); ${record.note}`;
     }
@@ -262,7 +275,7 @@ async function main(): Promise<void> {
     record = await localRealRuntime();
     record.note =
       `Network unreachable from this environment (${probe.detail} on ${nodeUrl}). ` +
-      'Run this script from a network with Midnight egress to record a real testnet deployment. ' +
+      'Run this script from a network with Midnight egress to record a real preprod deployment. ' +
       record.note;
   } else {
     console.log('no compiled contracts and no network — reference dry-run only');

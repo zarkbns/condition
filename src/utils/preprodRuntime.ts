@@ -1,7 +1,7 @@
 // Preprod runtime — Midnight.js SDK-backed AsyncConditionRuntime (BUILD_SPEC.md §3).
 //
 // Implements the same AsyncConditionRuntime interface as the local reference
-// runtime, but backed by real Midnight testnet contracts via the Midnight.js
+// runtime, but backed by real Midnight Preprod contracts via the Midnight.js
 // SDK providers (wallet, indexer, prover, zk-config).
 //
 // Architecture (BUILD_SPEC §7, §11):
@@ -17,11 +17,12 @@
 //     reference runtime exists ONLY for development (switchToLocal in the
 //     provider), never as an automatic fallback.
 //
-// Network endpoints (configured via env; defaults target Midnight TestNet):
-//   NEXT_PUBLIC_MIDNIGHT_INDEXER  — GraphQL indexer URL
-//   NEXT_PREPROD_PROVER           — Proof server URL
+// Network endpoints (configured via env; defaults target Midnight Preprod):
+//   NEXT_PUBLIC_MIDNIGHT_INDEXER  — GraphQL indexer URL (indexer API v4)
+//   NEXT_PREPROD_PROVER           — Proof server URL (no hosted Preprod prover
+//                                    exists; run a local Docker proof server)
 //   NEXT_PREPROD_NODE             — Substrate node URL
-//   NEXT_PUBLIC_MIDNIGHT_NETWORK  — Display name ("Preprod TestNet")
+//   NEXT_PUBLIC_MIDNIGHT_NETWORK  — Display name ("Preprod")
 //
 // Wallet:
 //   Browser (Lace extension): provides walletProvider + midnightProvider via
@@ -99,10 +100,14 @@ export class PreprodUnavailableError extends Error {
 // ---------------------------------------------------------------------------
 
 export const PREPROD_ENDPOINTS = {
-  indexerHttp: 'https://indexer.testnet-02.midnight.network/api/v1/graphql',
-  indexerWs: 'wss://indexer.testnet-02.midnight.network/api/v1/graphql/ws',
-  prover: 'https://prover.testnet-02.midnight.network',
-  node: 'https://rpc.testnet-02.midnight.network',
+  // Midnight Preprod — indexer API v4 (the retired testnet-02 network used
+  // /api/v1 and no longer resolves). No hosted Preprod prover exists: proofs
+  // are generated client-side (Invariant 2), and contract proving that needs
+  // a proof server uses a local Docker proof server (localhost:6300).
+  indexerHttp: 'https://indexer.preprod.midnight.network/api/v4/graphql',
+  indexerWs: 'wss://indexer.preprod.midnight.network/api/v4/graphql/ws',
+  prover: 'http://127.0.0.1:6300',
+  node: 'https://rpc.preprod.midnight.network',
 } as const;
 
 export interface PreprodConfig {
@@ -121,7 +126,7 @@ export function preprodConfigFromEnv(
     indexerWs: env['NEXT_PUBLIC_MIDNIGHT_INDEXER_WS'] ?? PREPROD_ENDPOINTS.indexerWs,
     prover: env['NEXT_PREPROD_PROVER'] ?? PREPROD_ENDPOINTS.prover,
     node: env['NEXT_PREPROD_NODE'] ?? PREPROD_ENDPOINTS.node,
-    networkLabel: env['NEXT_PUBLIC_MIDNIGHT_NETWORK'] ?? 'Preprod TestNet',
+    networkLabel: env['NEXT_PUBLIC_MIDNIGHT_NETWORK'] ?? 'Preprod',
   };
 }
 
@@ -132,10 +137,13 @@ export function preprodConfigFromEnv(
 export async function probeEndpoints(
   config: ReturnType<typeof preprodConfigFromEnv>,
 ): Promise<PreprodStatus['endpoints']> {
+  // Any HTTP response means the host answered (GraphQL endpoints return 400
+  // on plain GET; the local proof server is not a REST API) — only a thrown
+  // fetch (refused / DNS failure / timeout) counts as down.
   const probe = async (url: string): Promise<boolean> => {
     try {
-      const res = await fetch(url, { method: 'GET', signal: AbortSignal.timeout(6000) });
-      return res.ok;
+      await fetch(url, { method: 'GET', signal: AbortSignal.timeout(6000) });
+      return true;
     } catch {
       return false;
     }
@@ -221,6 +229,15 @@ export class PreprodOnChainClient {
         // (deploy/deploy.ts, scripts/e2e-preprod.ts).
         const { WalletBuilder } = await import(/* webpackIgnore: true */ '@midnight-ntwrk/wallet');
         const { NetworkId } = await import(/* webpackIgnore: true */ '@midnight-ntwrk/zswap');
+        const { setNetworkId } = await import(
+          /* webpackIgnore: true */ '@midnight-ntwrk/midnight-js-network-id'
+        );
+        // midnight-js consumes a string network id for tx construction and
+        // key parsing (and throws if never set); 'preprod' is the string id
+        // of the persistent testnet in this SDK generation. WalletBuilder
+        // itself keeps zswap's numeric NetworkId.TestNet — zswap@4 has no
+        // dedicated Preprod member and Preprod is that testnet.
+        setNetworkId('preprod');
         const wallet = await WalletBuilder.build(
           this.config.indexerHttp,
           this.config.indexerWs,
@@ -419,7 +436,12 @@ export class PreprodConditionRuntime implements AsyncConditionRuntime {
     endpoints: PreprodStatus['endpoints'],
     config: ReturnType<typeof preprodConfigFromEnv>,
   ) {
-    const allOk = endpoints.indexer && endpoints.prover && endpoints.node;
+    // Gate on the two hosted services the runtime cannot work without
+    // (indexer reads, node submission). The prover is probed and reported
+    // separately: Preprod has no hosted proof server, so a down prover must
+    // not block the mode — proofs are generated client-side (Invariant 2),
+    // and a local Docker proof server is only needed for contract proving.
+    const allOk = endpoints.indexer && endpoints.node;
     this._mode = allOk ? (walletConnected ? 'preprod' : 'wallet-needed') : 'network-down';
     this._status = {
       mode: this._mode,
