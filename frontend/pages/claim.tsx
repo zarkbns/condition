@@ -1,16 +1,18 @@
 import Head from 'next/head';
 import { useMemo, useState } from 'react';
 import { useCondition } from '../src/components/ConditionProvider';
+import { ConnectionGate } from '../src/components/ConnectionGate';
 import type { ClaimProof, Receipt } from '../../src/types';
 import { inCoverageWindow } from '../../src/core/payout';
 
 export default function ClaimPage() {
-  const { runtime, policies, refresh } = useCondition();
+  const { runtime, status, txHistory, refresh, policies } = useCondition();
   const [selected, setSelected] = useState<string>('');
   const [error, setError] = useState<string | null>(null);
   const [proof, setProof] = useState<ClaimProof | null>(null);
   const [receipt, setReceipt] = useState<Receipt | null>(null);
   const [released, setReleased] = useState<string | null>(null);
+  const [busy, setBusy] = useState<string | null>(null);
 
   const claimable = useMemo(
     () => policies.filter((p) => p.status === 'TRIGGERED'),
@@ -28,108 +30,101 @@ export default function ClaimPage() {
 
   const now = () => Math.floor(Date.now() / 1000);
 
-  const enroll = (policyId: string) => {
+  const run = async (key: string, fn: () => Promise<void>) => {
+    if (!runtime) return;
     setError(null);
+    setBusy(key);
     try {
-      const { commitment } = runtime.claimService.enroll(policyId, now());
-      // Holder pays the premium into escrow at enrollment.
-      const policyRow = runtime.policyService.getPolicy(policyId);
-      runtime.policyService.publishEnrollment(policyId, commitment, policyRow.terms.premium, now());
-      refresh();
+      await fn();
+      await refresh();
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setBusy(null);
     }
   };
 
-  const fund = (policyId: string) => {
-    setError(null);
-    try {
-      const policyRow = runtime.policyService.getPolicy(policyId);
-      // Fund the escrow so it covers payout + premium.
+  const enroll = (policyId: string) =>
+    run('enroll', async () => {
+      if (!runtime) return;
+      const { commitment } = await runtime.claimService.enroll(policyId, now());
+      const policyRow = await runtime.policyService.getPolicy(policyId);
+      await runtime.policyService.publishEnrollment(
+        policyId, commitment, policyRow.terms.premium, now(),
+      );
+    });
+
+  const fund = (policyId: string) =>
+    run('fund', async () => {
+      if (!runtime) return;
+      const policyRow = await runtime.policyService.getPolicy(policyId);
       const target = policyRow.terms.payoutAmount + policyRow.terms.premium;
-      runtime.policyService.fund(policyId, target - policyRow.fundedAmount, now());
-      refresh();
-    } catch (err) {
-      setError(err instanceof Error ? err.message : String(err));
-    }
-  };
+      await runtime.policyService.fund(policyId, target - policyRow.fundedAmount, now());
+    });
 
-  const recordTrigger = (policyId: string) => {
-    setError(null);
-    try {
-      // Cross-verified trigger: two independent registered sources.
-      runtime.triggerService.registerSource('open-meteo');
-      runtime.triggerService.registerSource('noaa');
-      const policyRow = runtime.policyService.getPolicy(policyId);
+  const recordTrigger = (policyId: string) =>
+    run('record_trigger', async () => {
+      if (!runtime) return;
+      await runtime.triggerService.registerSource('open-meteo');
+      await runtime.triggerService.registerSource('noaa');
+      const policyRow = await runtime.policyService.getPolicy(policyId);
       const fires =
         policyRow.terms.operator === 'GT' || policyRow.terms.operator === 'GTE'
           ? policyRow.terms.threshold + 100
           : policyRow.terms.threshold - 100;
-      runtime.triggerService.submitReadings(
+      await runtime.triggerService.submitReadings(
         policyId,
         [
           { source: 'open-meteo', value: fires },
-          { source: 'noaa', value: fires - 50 }, // agrees, slightly different reading
+          { source: 'noaa', value: fires - 50 },
         ],
         now(),
       );
-      refresh();
-    } catch (err) {
-      setError(err instanceof Error ? err.message : String(err));
-    }
-  };
+    });
 
-  const submitClaim = () => {
-    setError(null);
-    setProof(null);
-    setReceipt(null);
-    setReleased(null);
-    if (!policy) return;
-    try {
-      // Proof generation happens HERE, in the browser (Invariant 2).
-      const generated = runtime.claimService.submitClaim(policy.policyId, now());
+  const submitClaim = () =>
+    run('submit_claim', async () => {
+      if (!runtime || !policy) return;
+      setProof(null);
+      setReceipt(null);
+      setReleased(null);
+      const generated = await runtime.claimService.submitClaim(policy.policyId, now());
       setProof(generated);
-      refresh();
-    } catch (err) {
-      setError(err instanceof Error ? err.message : String(err));
-    }
-  };
+    });
 
-  const settle = () => {
-    setError(null);
-    if (!policy || !proof) return;
-    try {
+  const settle = () =>
+    run('settle', async () => {
+      if (!runtime || !policy || !proof) return;
       const t = now();
-      // The witness provider re-derives the witness in-process — the holder
-      // secret never crosses a boundary.
       const witnessProvider = () => {
-        const fresh = runtime.policyService.getPolicy(policy.policyId);
-        if (fresh.trigger === null) throw new Error('trigger vanished');
+        const snapshot = policy;
         return {
           policyId: policy.policyId,
-          holderSecret: runtime.privateLedger.secretFor(policy.policyId),
+          holderSecret: runtime.claimService.secretFor(policy.policyId),
           settlementAmount:
-            fresh.trigger.outcome && inCoverageWindow(fresh.terms, t)
-              ? fresh.terms.payoutAmount
+            snapshot.trigger?.outcome && inCoverageWindow(snapshot.terms, t)
+              ? snapshot.terms.payoutAmount
               : 0n,
           claimTime: t,
-          triggerEvidence: fresh.trigger,
+          triggerEvidence: snapshot.trigger ?? { readings: [], outcome: false, observedValue: 0, recordedAt: 0 },
         };
       };
-      const result = runtime.settlementService.settle(t, proof, policy.policyId, witnessProvider);
-      runtime.claimService.receivePayout(policy.policyId, result.releasedAmount, t);
+      const result = await runtime.settlementService.settle(
+        t, proof, policy.policyId, witnessProvider as never,
+      );
+      await runtime.claimService.receivePayout(
+        policy.policyId, result.releasedAmount, result.receipt.timestamp,
+      );
       setReceipt(result.receipt);
       setReleased(result.releasedAmount > 0n
         ? `${(Number(result.releasedAmount) / 1e9).toFixed(2)} tDUST credited privately`
         : 'no payout — trigger did not fire or window closed');
-      refresh();
-    } catch (err) {
-      setError(err instanceof Error ? err.message : String(err));
-    }
-  };
+    });
+
+  const recentTx = txHistory.slice(-6).reverse();
 
   return (
-    <>
+    <ConnectionGate>
       <Head>
         <title>Claim — Condition</title>
       </Head>
@@ -138,6 +133,11 @@ export default function ClaimPage() {
         <p className="section-sub">
           Your holder secret was generated in this browser and never leaves
           it. The proof is built client-side; only digests go public.
+          {status.mode === 'preprod' && (
+            <span style={{ color: 'var(--accent)', marginLeft: 8 }}>
+              · Preprod wallet: {status.walletAddress.slice(0, 8)}…
+            </span>
+          )}
         </p>
       </div>
 
@@ -151,8 +151,8 @@ export default function ClaimPage() {
           {enrollable.map((p) => (
             <div key={p.policyId} className="actions-cell" style={{ marginBottom: 8 }}>
               <code>{p.policyId.slice(0, 20)}…</code>{' '}
-              <button className="button" onClick={() => enroll(p.policyId)}>
-                Enroll
+              <button className="button" onClick={() => enroll(p.policyId)} disabled={busy !== null}>
+                {busy === 'enroll' ? 'Enrolling…' : 'Enroll'}
               </button>
             </div>
           ))}
@@ -171,11 +171,11 @@ export default function ClaimPage() {
               <span className="mono-row">
                 escrow {(Number(p.fundedAmount) / 1e9).toFixed(2)} tDUST
               </span>{' '}
-              <button className="button" onClick={() => fund(p.policyId)}>
-                Fund to target
+              <button className="button" onClick={() => fund(p.policyId)} disabled={busy !== null}>
+                {busy === 'fund' ? 'Funding…' : 'Fund to target'}
               </button>
-              <button className="button" onClick={() => recordTrigger(p.policyId)}>
-                Record 2-source trigger
+              <button className="button" onClick={() => recordTrigger(p.policyId)} disabled={busy !== null}>
+                {busy === 'record_trigger' ? 'Recording…' : 'Record 2-source trigger'}
               </button>
             </div>
           ))}
@@ -185,11 +185,7 @@ export default function ClaimPage() {
       <div className="card">
         <h2>3 · Claim + settle</h2>
         <label htmlFor="policy-select">Policy (triggered)</label>
-        <select
-          id="policy-select"
-          value={selected}
-          onChange={(e) => setSelected(e.target.value)}
-        >
+        <select id="policy-select" value={selected} onChange={(e) => setSelected(e.target.value)}>
           <option value="">— select a triggered policy —</option>
           {claimable.map((p) => (
             <option key={p.policyId} value={p.policyId}>
@@ -202,12 +198,12 @@ export default function ClaimPage() {
           <button
             className="button primary"
             onClick={submitClaim}
-            disabled={!selected || !claimable.some((p) => p.policyId === selected)}
+            disabled={!selected || !claimable.some((p) => p.policyId === selected) || busy !== null}
           >
-            Generate proof (client-side)
+            {busy === 'submit_claim' ? 'Proving…' : 'Generate proof (client-side)'}
           </button>
-          <button className="button" onClick={settle} disabled={!proof}>
-            Settle privately
+          <button className="button" onClick={settle} disabled={!proof || busy !== null}>
+            {busy === 'settle' ? 'Settling…' : 'Settle on Preprod'}
           </button>
         </div>
 
@@ -249,6 +245,38 @@ export default function ClaimPage() {
           </span>
         </div>
       </div>
-    </>
+
+      {/* On-chain transaction history */}
+      {recentTx.length > 0 && (
+        <div className="card" style={{ marginTop: 16, padding: 0, overflowX: 'auto' }}>
+          <table>
+            <thead>
+              <tr>
+                <th>Action</th>
+                <th>Policy</th>
+                <th>Tx Hash</th>
+                <th>Status</th>
+              </tr>
+            </thead>
+            <tbody>
+              {recentTx.map((t, i) => (
+                <tr key={`${t.txHash}-${i}`}>
+                  <td><span className={`status ${t.status}`}>{t.action}</span></td>
+                  <td><code>{t.policyId.slice(0, 16)}…</code></td>
+                  <td>
+                    {t.txHash ? (
+                      <code>{t.txHash.slice(0, 16)}…{t.txHash.slice(-4)}</code>
+                    ) : (
+                      <span className="mono-row">—</span>
+                    )}
+                  </td>
+                  <td><span className="mono-row">{t.status}</span></td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+    </ConnectionGate>
   );
 }

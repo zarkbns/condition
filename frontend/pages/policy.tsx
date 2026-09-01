@@ -1,13 +1,14 @@
 import Head from 'next/head';
 import { useState } from 'react';
 import { useCondition } from '../src/components/ConditionProvider';
+import { ConnectionGate } from '../src/components/ConnectionGate';
 import { TriggerType, ComparisonOp, type Dust } from '../../src/types';
 
-const DUST = 1_000_000_000n; // 1 tDUST display unit → dust
+const DUST = 1_000_000_000n;
 const DAY = 86_400;
 
 export default function PolicyPage() {
-  const { runtime, insurer, refresh, policies } = useCondition();
+  const { runtime, insurer, status, txHistory, refresh, policies } = useCondition();
   const [triggerType, setTriggerType] = useState<TriggerType>(TriggerType.TEMPERATURE);
   const [operator, setOperator] = useState<ComparisonOp>(ComparisonOp.GTE);
   const [threshold, setThreshold] = useState(3500);
@@ -16,13 +17,16 @@ export default function PolicyPage() {
   const [days, setDays] = useState(30);
   const [error, setError] = useState<string | null>(null);
   const [created, setCreated] = useState<string | null>(null);
+  const [creating, setCreating] = useState(false);
 
-  const createPolicy = () => {
+  const createPolicy = async () => {
+    if (!runtime) return;
     setError(null);
     setCreated(null);
+    setCreating(true);
     const now = Math.floor(Date.now() / 1000);
     try {
-      const policy = runtime.policyService.create(
+      const policy = await runtime.policyService.create(
         insurer,
         {
           triggerType,
@@ -36,14 +40,18 @@ export default function PolicyPage() {
         now,
       );
       setCreated(policy.policyId);
-      refresh();
+      await refresh();
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setCreating(false);
     }
   };
 
+  const createTx = txHistory.filter((t) => t.action === 'create').slice(-5).reverse();
+
   return (
-    <>
+    <ConnectionGate>
       <Head>
         <title>Create policy — Condition</title>
       </Head>
@@ -53,6 +61,11 @@ export default function PolicyPage() {
           Terms are public and immutable the moment the policy exists
           (Invariant 5). The payout is deterministic — nobody, not even you,
           chooses the settlement amount later.
+          {status.mode === 'preprod' && (
+            <span style={{ color: 'var(--accent)', marginLeft: 8 }}>
+              · Preprod wallet: {status.walletAddress.slice(0, 8)}…
+            </span>
+          )}
         </p>
       </div>
 
@@ -79,14 +92,8 @@ export default function PolicyPage() {
           </div>
           <div>
             <label>Threshold (×100)</label>
-            <input
-              type="number"
-              value={threshold}
-              min={-1000000}
-              max={1000000}
-              step={1}
-              onChange={(e) => setThreshold(Number(e.target.value))}
-            />
+            <input type="number" value={threshold} min={-1000000} max={1000000} step={1}
+              onChange={(e) => setThreshold(Number(e.target.value))} />
           </div>
           <div>
             <label>Payout (tDUST)</label>
@@ -105,8 +112,8 @@ export default function PolicyPage() {
           </div>
         </div>
         <div className="button-row">
-          <button className="button primary" onClick={createPolicy}>
-            Create policy
+          <button className="button primary" onClick={createPolicy} disabled={creating}>
+            {creating ? 'Creating…' : 'Create policy'}
           </button>
         </div>
         {error && <div className="notice error">{error}</div>}
@@ -116,6 +123,38 @@ export default function PolicyPage() {
           </div>
         )}
       </div>
+
+      {/* On-chain transaction history */}
+      {createTx.length > 0 && (
+        <div className="card" style={{ marginTop: 16, padding: 0, overflowX: 'auto' }}>
+          <table>
+            <thead>
+              <tr>
+                <th>Action</th>
+                <th>Policy</th>
+                <th>Tx Hash</th>
+                <th>Status</th>
+              </tr>
+            </thead>
+            <tbody>
+              {createTx.map((t, i) => (
+                <tr key={`${t.txHash}-${i}`}>
+                  <td><span className={`status ${t.status}`}>{t.action}</span></td>
+                  <td><code>{t.policyId.slice(0, 16)}…</code></td>
+                  <td>
+                    {t.txHash ? (
+                      <code>{t.txHash.slice(0, 16)}…{t.txHash.slice(-4)}</code>
+                    ) : (
+                      <span className="mono-row">—</span>
+                    )}
+                  </td>
+                  <td><span className="mono-row">{t.status}</span></td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
 
       <h2 className="section-title" style={{ marginTop: 32 }}>Policies</h2>
       <div className="card" style={{ padding: 0, overflowX: 'auto' }}>
@@ -156,10 +195,7 @@ export default function PolicyPage() {
           </table>
         )}
       </div>
-      <p className="mono-row" style={{ marginTop: 8 }}>
-        session insurer address: {insurer}
-      </p>
-    </>
+    </ConnectionGate>
   );
 }
 

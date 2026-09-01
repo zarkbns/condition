@@ -1,18 +1,32 @@
 import '../src/styles/globals.css';
 import type { AppProps } from 'next/app';
-import { ConditionProvider } from '../src/components/ConditionProvider';
+import { ConditionProvider, useCondition } from '../src/components/ConditionProvider';
+import { NetworkBadge } from '../src/components/NetworkBadge';
+
+function NavBar() {
+  const { status, connectWallet, retry, switchToLocal } = useCondition();
+  return (
+    <nav className="nav">
+      <a href="/" className="brand">⚡ condition</a>
+      <div className="nav-links">
+        <a href="/policy">create policy</a>
+        <a href="/claim">claim</a>
+        <a href="/receipt">receipts</a>
+      </div>
+      <NetworkBadge
+        status={status}
+        onConnectWallet={connectWallet}
+        onRetry={retry}
+        onSwitchToLocal={switchToLocal}
+      />
+    </nav>
+  );
+}
 
 export default function App({ Component, pageProps }: AppProps) {
   return (
     <ConditionProvider>
-      <nav className="nav">
-        <a href="/" className="brand">⚡ condition</a>
-        <div className="nav-links">
-          <a href="/policy">create policy</a>
-          <a href="/claim">claim</a>
-          <a href="/receipt">receipts</a>
-        </div>
-      </nav>
+      <NavBar />
       <main className="container">
         <Component {...pageProps} />
       </main>
