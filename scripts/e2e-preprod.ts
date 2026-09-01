@@ -42,13 +42,20 @@ async function main(): Promise<void> {
   console.log(
     `  indexer ${endpoints.indexer ? 'OK' : 'DOWN'} · prover ${endpoints.prover ? 'OK' : 'DOWN'} · node ${endpoints.node ? 'OK' : 'DOWN'}`,
   );
-  if (!endpoints.indexer || !endpoints.prover || !endpoints.node) {
+  if (!endpoints.indexer || !endpoints.node) {
     console.error(
-      `\n✗ Preprod endpoints unreachable from this device. On-chain E2E cannot run.\n` +
+      `\n✗ Preprod indexer/node unreachable from this device. On-chain E2E cannot run.\n` +
       `  Run this script from a network with Midnight egress.\n` +
       `  The frontend shows the same 'network down' warning instead of silently simulating.`,
     );
     process.exit(1);
+  }
+  if (!endpoints.prover) {
+    console.warn(
+      `  ⚠ no proof server reachable at ${config.prover} — run a local one:\n` +
+      `    docker run -p 6300:6300 midnightntwrk/proof-server:latest midnight-proof-server -v\n` +
+      `  Continuing: proofs are generated client-side; contract proving may need the server.`,
+    );
   }
 
   step('CONNECT WALLET (CLI, MIDNIGHT_WALLET_SEED)');
@@ -56,7 +63,7 @@ async function main(): Promise<void> {
   const ok = await client.connectWallet();
   if (!ok) {
     console.error(
-      `\n✗ No wallet connected. Set MIDNIGHT_WALLET_SEED (a funded testnet seed) to run on-chain.\n` +
+      `\n✗ No wallet connected. Set MIDNIGHT_WALLET_SEED (a funded preprod seed) to run on-chain.\n` +
       `  The frontend shows the 'Connect Wallet' action instead of simulating.`,
     );
     process.exit(1);
