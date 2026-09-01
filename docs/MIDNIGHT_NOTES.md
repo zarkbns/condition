@@ -71,7 +71,7 @@ In our reference runtime the same role is played by `claimService`'s in-memory h
 ## 3. Network & deployment
 
 - **Devnet:** `midnight-devnet` via Docker (`docker compose up`), points at `http://localhost:8080/api/v1` etc. Not usable on Termux; use the reference runtime instead.
-- **Testnet:** `https://testnet-idx.midnight.network` (indexer), relay `wss://testnet.midnight.network`. Set `MIDNIGHT_NODE_URL` in `.env`.
+- **Preprod (current persistent testnet):** indexer `https://indexer.preprod.midnight.network/api/v4/graphql` (WS `…/api/v4/graphql/ws`), node `https://rpc.preprod.midnight.network`, faucet `https://faucet.preprod.midnight.network`. No hosted prover — run a local Docker proof server (`localhost:6300`). Set `MIDNIGHT_NODE_URL` in `.env`. The old testnet-02 network is retired and its endpoints no longer resolve.
 - **Deployment:** `npm run deploy` runs `deploy/deploy.ts`, compiles contracts (if toolchain present), deploys instances, and records addresses in `deploy/deployments.json`. On unsupported platforms it performs a dry-run against the reference runtime and says so.
 - **Wallets:** Lace wallet via `midnight-js` `walletClient` in the browser build. The MVP frontend uses a local in-memory identity (no wallet) — the services API is wallet-agnostic on purpose.
 

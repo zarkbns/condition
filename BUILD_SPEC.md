@@ -336,7 +336,7 @@ npm run deploy          # deploy/deploy.ts — writes deploy/deployments.json
 
 Environment (`.env` / `.env.local`):
 ```
-MIDNIGHT_NODE_URL=https://testnet-idx.midnight.network    # optional; default is the local reference runtime
+MIDNIGHT_NODE_URL=https://rpc.preprod.midnight.network    # optional; default is the local reference runtime
 NEXT_PUBLIC_APP_NAME=Condition
 ```
 Secrets are read exclusively via `process.env` (AGENTS.md rule). No key material is ever committed.

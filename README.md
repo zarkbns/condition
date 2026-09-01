@@ -101,7 +101,7 @@ Then in the browser:
 2. `/claim` — enroll, record a 2-source trigger, generate the proof client-side, settle
 3. `/receipt` — browse + verify public receipts
 
-`npm run deploy` attempts a real testnet deployment (Midnight JS SDK: wallet → providers → `deployContract`), recording contract addresses and tx hashes. When Midnight endpoints are unreachable (e.g. this build environment's network), it falls back to local real-runtime verification of the same compiled contracts and records the honest blocker with evidence. Every run writes `deploy/deployments.json`; circuit identities live in `deploy/artifacts.json`. Secrets are read only from `process.env` — never committed.
+`npm run deploy` attempts a real Preprod deployment (Midnight JS SDK: wallet → providers → `deployContract`), recording contract addresses and tx hashes. When Midnight endpoints are unreachable (e.g. this build environment's network), it falls back to local real-runtime verification of the same compiled contracts and records the honest blocker with evidence. Every run writes `deploy/deployments.json`; circuit identities live in `deploy/artifacts.json`. Secrets are read only from `process.env` — never committed.
 
 ---
 
@@ -141,7 +141,7 @@ condition/
 │   ├── policy / trigger / claim / settlement / zk
 │   └── helpers.ts               # fullFlow() fixture
 │
-├── deploy/deploy.ts             # Testnet deploy (midnight-js) / local real-runtime verification
+├── deploy/deploy.ts             # Preprod deploy (midnight-js) / local real-runtime verification
 ├── deploy/artifacts.json        # Circuit identities (verifier key + zkir hashes) — committed
 └── scripts/                     # build-contracts, demo-lifecycle, gen-artifacts, postinstall, gen-vectors
 ```
@@ -214,7 +214,7 @@ npm run deploy
 
 Three tiers, best-first:
 
-1. **Testnet** — needs `MIDNIGHT_NODE_URL` reachable + `MIDNIGHT_WALLET_SEED` (funded testnet seed, env-only). Deploys the compiled contracts via the real Midnight JS SDK and records contract addresses + tx hashes.
+1. **Preprod** — needs `MIDNIGHT_NODE_URL` reachable + `MIDNIGHT_WALLET_SEED` (funded preprod seed, env-only), plus a proof server (no hosted Preprod prover exists — run a local Docker proof server or set `MIDNIGHT_PROVER_URL`). Deploys the compiled contracts via the real Midnight JS SDK and records contract addresses + tx hashes.
 2. **Local real-runtime** — when Midnight endpoints are unreachable, the same compiled contracts execute on the real `@midnight-ntwrk/compact-runtime` locally: full lifecycle, digest parity, recorded as evidence in `deploy/deployments.json`.
 3. **Reference dry-run** — no compiled contracts: TS reference loop only.
 
