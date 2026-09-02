@@ -32,6 +32,16 @@ import { fileURLToPath } from 'node:url';
 const root = join(dirname(fileURLToPath(import.meta.url)), '..');
 const managed = (name: string) => join(root, 'contracts', 'managed', name);
 
+// Load .env (docs say secrets/config live there). Existing process env wins,
+// so explicit shell exports still take precedence over file values.
+if (existsSync(join(root, '.env'))) {
+  try {
+    process.loadEnvFile(join(root, '.env'));
+  } catch {
+    // A malformed .env must not crash the deployer before it can report.
+  }
+}
+
 interface DeploymentRecord {
   network: string;
   deployedAt: string;
@@ -53,7 +63,9 @@ const DEFAULT_PROVER_URL = 'http://127.0.0.1:6300';
 
 async function probeNetwork(url: string): Promise<{ ok: boolean; detail: string }> {
   try {
-    const res = await fetch(url, { method: 'GET', signal: AbortSignal.timeout(8000) });
+    // 20s: flaky networks momentarily exceed short timeouts — the probe must
+    // not skip tier 1 just because one request stalls.
+    const res = await fetch(url, { method: 'GET', signal: AbortSignal.timeout(20000) });
     return { ok: true, detail: `HTTP ${res.status}` };
   } catch (err) {
     return { ok: false, detail: err instanceof Error ? err.message : String(err) };
@@ -127,6 +139,32 @@ async function deployToPreprod(nodeUrl: string): Promise<DeploymentRecord> {
   const { setNetworkId } = await import('@midnight-ntwrk/midnight-js-network-id');
   setNetworkId('preprod');
   try {
+    // The wallet is inert until started, and midnight-js never starts it.
+    // Wait for a full sync — otherwise the deploy tx balances against a
+    // coin set that doesn't include the faucet funding yet.
+    const { firstValueFrom } = await import('rxjs');
+    const { filter, timeout } = await import('rxjs/operators');
+    wallet.start();
+    const syncedState = await firstValueFrom(
+      wallet.state().pipe(
+        filter((s) => s.syncProgress?.synced === true),
+        // Fresh wallets on a chatty network can take a few minutes to
+        // converge; 10 min covers slow mobile links before giving up.
+        timeout(600_000),
+      ),
+    );
+    const balances = Object.entries(syncedState.balances ?? {})
+      .map(([token, amt]) => `${token.slice(0, 12)}…: ${amt}`)
+      .join(', ');
+    console.log(
+      `wallet synced: address ${syncedState.address}, balances ${balances || '(empty)'}`,
+    );
+    if (!balances) {
+      throw new Error(
+        'wallet is synced but holds no coins — fund this seed on Preprod before deploying',
+      );
+    }
+
     const privateStateProvider = inMemoryPrivateState();
     const zkConfigProvider = new NodeZkConfigProvider(join(root, 'contracts', 'managed'));
     const publicDataProvider = indexerPublicDataProvider(INDEXER_HTTP, INDEXER_WS);
