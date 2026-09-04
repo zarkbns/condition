@@ -225,7 +225,7 @@ Three tiers, best-first:
 | policy | `cc7f513d5aed49bd51b8836e000f0ab2250efc1c882a10a0bccaa21e9b268fe6` | 2394413 | `7697a8014f5484f44ea2abdeab89351800eef2ceaa24f579f6ab27bd7d681ff7` |
 | settlement | `dd8174380525cb46b7691f7502850ce701bc5cd5b7f29f76f20e7f8f3d65c360` | 2394417 | `32da87265070a5dcf294c6cc40fa965d9138a3125f49eddaf2d004edffaf9c88` |
 
-Both transactions `SUCCESS`, independently verified via the Preprod indexer (`contractAction` by address).
+Both transactions `SUCCESS`, independently verified via the Preprod indexer (`contractAction` by address). Full evidence (blocks, indexer tx ids, re-verification commands, indexer v3/v4 rationale): **`docs/DEPLOYMENTS.md`**.
 
 **Proof-server version requirement:** the local proof server must be **`midnightntwrk/proof-server:8.1.0`** — matching the ledger-v8 8.1.0 / wallet-sdk 3.0.0 line this repo uses. The 9.0.0-rc line produces DUST spend proofs the node rejects with `Custom error: 170` (InvalidDustSpendProof).
 
