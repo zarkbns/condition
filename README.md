@@ -1,6 +1,6 @@
 # Condition – Privacy-Preserving Parametric Insurance on Midnight
 
-**Status:** Real contracts compiled (compactc 0.30.0), executing on the real Midnight runtime with full cross-layer digest parity — 153 tests green, live end-to-end lifecycle demo.
+**Status:** Deployed on Midnight Preprod (policy + settlement contracts live, both txs `SUCCESS`). 153 tests green, live end-to-end lifecycle demo, full cross-layer digest parity.
 
 ## What is Condition?
 
@@ -101,7 +101,7 @@ Then in the browser:
 2. `/claim` — enroll, record a 2-source trigger, generate the proof client-side, settle
 3. `/receipt` — browse + verify public receipts
 
-`npm run deploy` attempts a real Preprod deployment (Midnight JS SDK: wallet → providers → `deployContract`), recording contract addresses and tx hashes. When Midnight endpoints are unreachable (e.g. this build environment's network), it falls back to local real-runtime verification of the same compiled contracts and records the honest blocker with evidence. Every run writes `deploy/deployments.json`; circuit identities live in `deploy/artifacts.json`. Secrets are read only from `process.env` — never committed.
+`npm run deploy` performs a real Preprod deployment (Midnight wallet-sdk facade stack: unshielded + bootstrapped dust wallets → `deployContract`), recording contract addresses and tx hashes. When Midnight endpoints are unreachable (e.g. this build environment's network), it falls back to local real-runtime verification of the same compiled contracts and records the honest blocker with evidence. Every run writes `deploy/deployments.json`; circuit identities live in `deploy/artifacts.json`. Secrets are read only from `process.env` — never committed.
 
 ---
 
@@ -214,9 +214,20 @@ npm run deploy
 
 Three tiers, best-first:
 
-1. **Preprod** — needs `MIDNIGHT_NODE_URL` reachable + `MIDNIGHT_WALLET_SEED` (funded preprod seed, env-only), plus a proof server (no hosted Preprod prover exists — run a local Docker proof server or set `MIDNIGHT_PROVER_URL`). Deploys the compiled contracts via the real Midnight JS SDK and records contract addresses + tx hashes.
+1. **Preprod** — needs `MIDNIGHT_NODE_URL` reachable + `MIDNIGHT_WALLET_SEED` (funded preprod seed, env-only), plus a local proof server (no hosted Preprod prover exists) at `MIDNIGHT_PROVER_URL` (default `http://127.0.0.1:6300`). Deploys the compiled contracts via the real Midnight wallet-sdk facade stack and records contract addresses + tx hashes.
 2. **Local real-runtime** — when Midnight endpoints are unreachable, the same compiled contracts execute on the real `@midnight-ntwrk/compact-runtime` locally: full lifecycle, digest parity, recorded as evidence in `deploy/deployments.json`.
 3. **Reference dry-run** — no compiled contracts: TS reference loop only.
+
+### Live on Preprod (deployed 2026-09-03)
+
+| Contract | Address | Block | Tx hash |
+|----------|---------|-------|---------|
+| policy | `cc7f513d5aed49bd51b8836e000f0ab2250efc1c882a10a0bccaa21e9b268fe6` | 2394413 | `7697a8014f5484f44ea2abdeab89351800eef2ceaa24f579f6ab27bd7d681ff7` |
+| settlement | `dd8174380525cb46b7691f7502850ce701bc5cd5b7f29f76f20e7f8f3d65c360` | 2394417 | `32da87265070a5dcf294c6cc40fa965d9138a3125f49eddaf2d004edffaf9c88` |
+
+Both transactions `SUCCESS`, independently verified via the Preprod indexer (`contractAction` by address).
+
+**Proof-server version requirement:** the local proof server must be **`midnightntwrk/proof-server:8.1.0`** — matching the ledger-v8 8.1.0 / wallet-sdk 3.0.0 line this repo uses. The 9.0.0-rc line produces DUST spend proofs the node rejects with `Custom error: 170` (InvalidDustSpendProof).
 
 ---
 
