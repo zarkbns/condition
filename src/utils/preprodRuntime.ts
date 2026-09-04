@@ -18,7 +18,11 @@
 //     provider), never as an automatic fallback.
 //
 // Network endpoints (configured via env; defaults target Midnight Preprod):
-//   NEXT_PUBLIC_MIDNIGHT_INDEXER  — GraphQL indexer URL (indexer API v4)
+//   NEXT_PUBLIC_MIDNIGHT_INDEXER  — GraphQL indexer URL (indexer API v3 —
+//                                    the surface this repo's SDK generation
+//                                    is verified against; see
+//                                    docs/DEPLOYMENTS.md before switching
+//                                    to v4)
 //   NEXT_PREPROD_PROVER           — Proof server URL (no hosted Preprod prover
 //                                    exists; run a local Docker proof server)
 //   NEXT_PREPROD_NODE             — Substrate node URL
@@ -32,7 +36,7 @@
 //     pattern as deploy/deploy.ts).
 
 import { createLocalAsyncRuntime } from './localAsyncRuntime.js';
-import { randomAddress } from '../core/hashing.js';
+import { randomAddress, sourceIdDigest } from '../core/hashing.js';
 import { PrivateLedger } from '../core/privateLedger.js';
 import type {
   AsyncConditionRuntime,
@@ -95,17 +99,34 @@ export class PreprodUnavailableError extends Error {
   }
 }
 
+/**
+ * Shared failure for on-chain operations whose provider stack is not wired
+ * yet: they must fail loudly (network-kind PreprodUnavailableError) rather
+ * than return placeholder hashes — a fabricated "confirmed" tx would leak
+ * into the UI as fake settlement evidence.
+ */
+function onChainNotWired(): PreprodUnavailableError {
+  return new PreprodUnavailableError(
+    'network',
+    'on-chain provider stack not wired in this build; the deployer (deploy/deploy.ts) is the reference for the real flow',
+  );
+}
+
 // ---------------------------------------------------------------------------
 // Preprod Configuration
 // ---------------------------------------------------------------------------
 
 export const PREPROD_ENDPOINTS = {
-  // Midnight Preprod — indexer API v4 (the retired testnet-02 network used
-  // /api/v1 and no longer resolves). No hosted Preprod prover exists: proofs
-  // are generated client-side (Invariant 2), and contract proving that needs
-  // a proof server uses a local Docker proof server (localhost:6300).
-  indexerHttp: 'https://indexer.preprod.midnight.network/api/v4/graphql',
-  indexerWs: 'wss://indexer.preprod.midnight.network/api/v4/graphql/ws',
+  // Midnight Preprod — indexer API v3: the wallet-sdk facade /
+  // midnight-js 4.1.1 generation this repo uses is verified against v3
+  // (deploy/deploy.ts pushed every wallet-stack query through it, live).
+  // v4 exists and currently answers the same read queries, but nothing in
+  // this repo has been verified against it — see docs/DEPLOYMENTS.md.
+  // No hosted Preprod prover exists: proofs are generated client-side
+  // (Invariant 2), and contract proving that needs a proof server uses a
+  // local Docker proof server (localhost:6300).
+  indexerHttp: 'https://indexer.preprod.midnight.network/api/v3/graphql',
+  indexerWs: 'wss://indexer.preprod.midnight.network/api/v3/graphql/ws',
   prover: 'http://127.0.0.1:6300',
   node: 'https://rpc.preprod.midnight.network',
 } as const;
@@ -304,21 +325,6 @@ export class PreprodOnChainClient {
   // is actually requested.
   // -------------------------------------------------------------------------
 
-  private async providers() {
-    // TODO(wave-2): assemble and cache the real provider stack:
-    //   - zkConfigProvider: NodeZkConfigProvider(contracts/managed)
-    //   - publicDataProvider: indexerPublicDataProvider(indexerHttp, indexerWs)
-    //   - proofProvider: httpClientProofProvider(prover, zkConfigProvider)
-    //   - privateStateProvider: in-memory (holder secrets never leave client)
-    //   - walletProvider / midnightProvider: the connected Wallet or Lace
-    // Then deployContract(PolicyContract, {args: []}) for each policy and
-    // callTx.create(...) to create it, recording the real tx hash.
-    throw new PreprodUnavailableError(
-      'network',
-      'on-chain provider stack not yet wired in this build; use scripts/e2e-preprod.ts',
-    );
-  }
-
   /** Deploy a PolicyContract and call create() on-chain. */
   async createPolicyOnChain(
     insurer: Address,
@@ -328,19 +334,7 @@ export class PreprodOnChainClient {
     if (!this.walletConnected) {
       throw new PreprodUnavailableError('wallet', 'no wallet connected');
     }
-    // Real flow (see providers() above): deploy the PolicyContract, call
-    // create(), read policy_id from the resulting state, record txHash.
-    const txHash = '0x' + '00'.repeat(32); // placeholder until provider wired
-    this.txHistory.push({
-      action: 'create',
-      policyId: '0x' + '00'.repeat(32),
-      txHash,
-      status: 'confirmed',
-      timestamp: now,
-    });
-    void insurer;
-    void terms;
-    return { policyId: '0x' + '00'.repeat(32), contractAddress: '0x00', txHash };
+    throw onChainNotWired();
   }
 
   /** Call fund(amount) on a deployed policy contract. */
@@ -356,10 +350,7 @@ export class PreprodOnChainClient {
     if (!address) {
       throw new PreprodUnavailableError('network', `no deployed policy for ${policyId}`);
     }
-    const txHash = '0x' + '00'.repeat(32);
-    this.txHistory.push({ action: 'fund', policyId, txHash, status: 'confirmed', timestamp: now });
-    void amount;
-    return { txHash };
+    throw onChainNotWired();
   }
 
   /** Call enroll(premium_paid) on a deployed policy contract. */
@@ -371,10 +362,7 @@ export class PreprodOnChainClient {
     if (!this.walletConnected) {
       throw new PreprodUnavailableError('wallet', 'no wallet connected');
     }
-    const txHash = '0x' + '00'.repeat(32);
-    this.txHistory.push({ action: 'enroll', policyId, txHash, status: 'confirmed', timestamp: now });
-    void premium;
-    return { txHash, commitment: '0x' + '00'.repeat(32) };
+    throw onChainNotWired();
   }
 
   /** Call record_trigger(value1, value2, source1, source2) on-chain. */
@@ -389,15 +377,7 @@ export class PreprodOnChainClient {
     if (!this.walletConnected) {
       throw new PreprodUnavailableError('wallet', 'no wallet connected');
     }
-    const txHash = '0x' + '00'.repeat(32);
-    this.txHistory.push({
-      action: 'record_trigger',
-      policyId,
-      txHash,
-      status: 'confirmed',
-      timestamp: now,
-    });
-    return { txHash };
+    throw onChainNotWired();
   }
 
   /** Deploy a SettlementContract, call link() then settle(). */
@@ -408,9 +388,7 @@ export class PreprodOnChainClient {
     if (!this.walletConnected) {
       throw new PreprodUnavailableError('wallet', 'no wallet connected');
     }
-    const txHash = '0x' + '00'.repeat(32);
-    this.txHistory.push({ action: 'settle', policyId, txHash, status: 'confirmed', timestamp: now });
-    return { txHash, receiptId: '0x' + '00'.repeat(32) };
+    throw onChainNotWired();
   }
 
   /** Get the wallet's current state. */
@@ -583,8 +561,8 @@ export class PreprodConditionRuntime implements AsyncConditionRuntime {
   };
 
   async refresh(): Promise<void> {
-    // TODO(wave-2): query the indexer for all known contract instances and
-    //   update the local cache.
+    // On-chain instance discovery is not wired yet (see docs/DEPLOYMENTS.md);
+    // the deployed contract addresses are static config until then.
   }
 
   txHistory(): TxRecord[] {
@@ -596,10 +574,9 @@ export class PreprodConditionRuntime implements AsyncConditionRuntime {
 // Factory: create the appropriate runtime based on environment
 // ---------------------------------------------------------------------------
 
-/** Source digest helper (placeholder until the trigger service is on-chain). */
+/** Source digest for record_trigger's on-chain source ids. */
 function sourceIdFromName(name: string): Bytes32 {
-  void name;
-  return '0x' + '00'.repeat(32);
+  return sourceIdDigest(name);
 }
 
 /**
