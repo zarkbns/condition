@@ -10,6 +10,7 @@ export default function ClaimPage() {
   const [selected, setSelected] = useState<string>('');
   const [error, setError] = useState<string | null>(null);
   const [proof, setProof] = useState<ClaimProof | null>(null);
+  const [claimTime, setClaimTime] = useState<number | null>(null);
   const [receipt, setReceipt] = useState<Receipt | null>(null);
   const [released, setReleased] = useState<string | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
@@ -86,35 +87,42 @@ export default function ClaimPage() {
     run('submit_claim', async () => {
       if (!runtime || !policy) return;
       setProof(null);
+      setClaimTime(null);
       setReceipt(null);
       setReleased(null);
-      const generated = await runtime.claimService.submitClaim(policy.policyId, now());
+      const t = now();
+      const generated = await runtime.claimService.submitClaim(policy.policyId, t);
       setProof(generated);
+      setClaimTime(t);
     });
 
   const settle = () =>
     run('settle', async () => {
-      if (!runtime || !policy || !proof) return;
+      if (!runtime || !policy || !proof || claimTime === null) return;
       const t = now();
+      // The witness must reproduce the proof-generation moment: the witness
+      // digest (and the on-chain witness_digest_c) hashes claimTime, and
+      // the payout was computed with the window evaluated at that moment —
+      // a settle-time value would fail the proof-hash binding.
       const witnessProvider = () => {
         const snapshot = policy;
         return {
           policyId: policy.policyId,
           holderSecret: runtime.claimService.secretFor(policy.policyId),
           settlementAmount:
-            snapshot.trigger?.outcome && inCoverageWindow(snapshot.terms, t)
+            snapshot.trigger?.outcome && inCoverageWindow(snapshot.terms, claimTime)
               ? snapshot.terms.payoutAmount
               : 0n,
-          claimTime: t,
+          claimTime,
           triggerEvidence: snapshot.trigger ?? { readings: [], outcome: false, observedValue: 0, recordedAt: 0 },
         };
       };
       const result = await runtime.settlementService.settle(
         t, proof, policy.policyId, witnessProvider as never,
       );
-      await runtime.claimService.receivePayout(
-        policy.policyId, result.releasedAmount, result.receipt.timestamp,
-      );
+      // The payout credit happens inside settle (AsyncClaimService
+      // contract: settlementService credits the private ledger) — calling
+      // receivePayout again here would double-credit.
       setReceipt(result.receipt);
       setReleased(result.releasedAmount > 0n
         ? `${(Number(result.releasedAmount) / 1e9).toFixed(2)} tDUST credited privately`
