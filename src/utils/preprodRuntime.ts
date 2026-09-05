@@ -192,14 +192,26 @@ export async function probeEndpoints(
 ): Promise<PreprodStatus['endpoints']> {
   // Any HTTP response means the host answered (GraphQL endpoints return 400
   // on plain GET; the local proof server is not a REST API) — only a thrown
-  // fetch (refused / DNS failure / timeout) counts as down.
+  // fetch (refused / DNS failure / timeout) counts as a failed attempt.
+  //
+  // Each endpoint gets a few bounded attempts: this project's dev host is a
+  // phone on a lossy link, and one dropped packet must not abort a run that
+  // costs thirty minutes of proving. A host that answers on a later attempt
+  // is genuinely reachable; one that never answers is still reported down,
+  // and callers keep failing loud on that.
+  const attempts = 3;
   const probe = async (url: string): Promise<boolean> => {
-    try {
-      await fetch(url, { method: 'GET', signal: AbortSignal.timeout(6000) });
-      return true;
-    } catch {
-      return false;
+    for (let attempt = 0; attempt < attempts; attempt++) {
+      try {
+        await fetch(url, { method: 'GET', signal: AbortSignal.timeout(8000) });
+        return true;
+      } catch {
+        if (attempt < attempts - 1) {
+          await new Promise((r) => setTimeout(r, 1500 * (attempt + 1)));
+        }
+      }
     }
+    return false;
   };
   const [indexer, prover, node] = await Promise.all([
     probe(config.indexerHttp),
