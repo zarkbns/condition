@@ -1,6 +1,6 @@
 # Condition – Privacy-Preserving Parametric Insurance on Midnight
 
-**Status:** Deployed on Midnight Preprod (policy + settlement contracts live, both txs `SUCCESS`). 153 tests green, live end-to-end lifecycle demo, full cross-layer digest parity.
+**Status:** Deployed on Midnight Preprod (policy + settlement contracts live, both txs `SUCCESS`). 156 tests green, live two-layer lifecycle demo (CLI), full cross-layer digest parity. Real on-chain writes run via the CLI — see [What runs where](#what-runs-where-browser-vs-cli).
 
 ## What is Condition?
 
@@ -58,7 +58,7 @@ Web2 insurance:
 - **Reference runtime:** TypeScript (`src/core` + `src/services`) — the executable spec
 - **Frontend:** Next.js 14 (Pages Router), React 18
 - **ZK proofs:** Client-side generation (browser, in-process; zero API routes)
-- **Testing:** Vitest (146 tests incl. adversarial privacy suite)
+- **Testing:** Vitest (156 tests incl. adversarial privacy suite)
 - **Hashing:** Hand-rolled SHA-256, pinned to NIST FIPS 180-4 vectors, zero runtime deps
 
 ### Why two layers?
@@ -69,11 +69,13 @@ The canonical Compact sources are the deployed truth; the TypeScript reference r
 
 ---
 
-## Live End-to-End Proof
+## Live End-to-End Proof (CLI demo)
 
 ```bash
 npx tsx scripts/demo-lifecycle.ts
 ```
+
+**This is a local CLI demo** — the compiled circuits execute on the real `@midnight-ntwrk/compact-runtime` on your machine, not on the Preprod network and not in a browser. The actual Preprod deployment (contract addresses, tx hashes) is recorded under [Deployment](#deployment); the browser experience is mapped in [What runs where](#what-runs-where-browser-vs-cli).
 
 Runs the full claim state machine on both layers with per-stage parity checks and live output:
 
@@ -89,7 +91,7 @@ Every stage shows the real compiled circuit executing on the real Midnight runti
 
 ```bash
 npm install        # deps + android swc shim (no-op elsewhere)
-npm test           # 153 tests: policy, trigger, claim, settlement, zk, privacy, parity, two-layer
+npm test           # 156 tests: policy, trigger, claim, settlement, zk, privacy, parity, two-layer, fail-loud, frontend
 npm run build      # typecheck + compile TS + contracts (compactc, incl. Termux via proot)
 npm run build:frontend
 npx tsx scripts/demo-lifecycle.ts   # live two-layer lifecycle demo
@@ -101,7 +103,21 @@ Then in the browser:
 2. `/claim` — enroll, record a 2-source trigger, generate the proof client-side, settle
 3. `/receipt` — browse + verify public receipts
 
+These pages run the protocol client-side. Without a connected wallet they operate on the LOCAL DEV reference runtime (an explicit opt-in); connecting a Midnight wallet in the browser is detected where implemented but does not yet submit transactions — see [What runs where](#what-runs-where-browser-vs-cli).
+
 `npm run deploy` performs a real Preprod deployment (Midnight wallet-sdk facade stack: unshielded + bootstrapped dust wallets → `deployContract`), recording contract addresses and tx hashes. When Midnight endpoints are unreachable (e.g. this build environment's network), it falls back to local real-runtime verification of the same compiled contracts and records the honest blocker with evidence. Every run writes `deploy/deployments.json`; circuit identities live in `deploy/artifacts.json`. Secrets are read only from `process.env` — never committed.
+
+### What runs where: browser vs CLI
+
+The "live end-to-end" capabilities in this README are CLI capabilities. The deployed frontend (Vercel) showcases the protocol — pages, client-side proof generation, receipt verification, and the LOCAL DEV reference loop — but does not execute real Preprod writes from a visitor's browser:
+
+| Capability | Where it runs |
+|------------|---------------|
+| Real Preprod contract deployment + on-chain lifecycle (`create → fund → enroll → record_trigger → link → settle`) | **CLI only** — `npm run deploy`, `scripts/e2e-preprod.ts` (seed-backed provider stack on the developer's machine) |
+| Live two-layer lifecycle demo (compiled circuits on the real compact-runtime, both layers in lockstep) | **CLI only** — `npx tsx scripts/demo-lifecycle.ts` (local execution, not the Preprod network) |
+| Deployed frontend (Vercel) — pages, client-side proof generation, receipt verification, LOCAL DEV reference loop | **Browser** |
+| Midnight wallet detection (Lace) in the browser | **Browser** — the frontend detects/connects the supported wallet path where implemented, but connecting a wallet is **not** browser transaction submission: on-chain writes are not wired in the browser and fail loud (explicit error) rather than simulate |
+| Proof server (`http://127.0.0.1:6300`) | **Developer-local only** — required by the CLI deployer/e2e for contract proving. There is no hosted Preprod prover, a Vercel visitor cannot reach the developer's localhost, and the deployed frontend neither uses nor depends on it |
 
 ---
 
@@ -195,7 +211,7 @@ Details: `docs/WAVES.md` · Spec: `BUILD_SPEC.md`
 ## Testing
 
 ```bash
-npm test                                 # full suite (153 tests)
+npm test                                 # full suite (156 tests)
 npx vitest run tests/privacy.test.ts     # just the invariant suite
 npx vitest run tests/twoLayerParity.test.ts   # compiled-circuit vs reference parity
 ```
@@ -249,7 +265,9 @@ Both transactions `SUCCESS`, independently verified via the Preprod indexer (`co
 - **Node.js version:** 22.x (`engines.node` in package.json; Vercel reads it automatically)
 - **Environment variables:** none required — all public endpoint defaults are baked into `frontend/next.config.js`, and nothing secret is used browser-side. `MIDNIGHT_WALLET_SEED` is CLI-only and must never be added as a Vercel env var.
 
-The browser bundle is audited to contain no Node-only Midnight packages, no wallet SDK internals, and no secrets. Browser on-chain writes stay explicitly unavailable (the runtime fails loud rather than simulating) — the live on-chain path runs through the CLI (`npm run deploy`, `scripts/e2e-preprod.ts`) where the seed-backed provider stack executes locally.
+The browser bundle is audited to contain no Node-only Midnight packages, no wallet SDK internals, and no secrets.
+
+**What a Vercel visitor can and cannot do:** the frontend detects and connects the supported Midnight wallet path where implemented (Lace), but wallet connection is not browser transaction submission — on-chain writes are not wired in the browser and fail loud (explicit error) rather than simulate. The live on-chain path runs through the CLI (`npm run deploy`, `scripts/e2e-preprod.ts`), where the seed-backed provider stack executes locally on the developer's machine. Likewise, the proof server at `http://127.0.0.1:6300` is the developer's local server — there is no hosted Preprod prover, a Vercel visitor cannot reach the developer's localhost, and the deployed frontend neither uses nor depends on it (its endpoint status honestly reports the prober as unreachable rather than implying it is usable).
 
 ---
 
