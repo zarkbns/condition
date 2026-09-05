@@ -5,7 +5,7 @@
   "description": "Condition — privacy-preserving parametric insurance on Midnight. Policies are transparent, claims settle privately, fairness is proven publicly.",
   "type": "module",
   "engines": {
-    "node": ">=20"
+    "node": ">=22"
   },
   "scripts": {
     "build": "tsc -p tsconfig.json && npm run build:contracts",
