@@ -670,6 +670,43 @@ export class PreprodConditionRuntime implements AsyncConditionRuntime {
   /** A random address for the session insurer (dev identity). */
   get insurer(): string { return randomAddress(); }
 
+  /**
+   * Adopt a policy whose contract was deployed by an earlier session:
+   * replays the local mirror from the recorded public inputs and binds the
+   * known contract address, WITHOUT submitting any transaction.
+   *
+   * The chain stays the source of truth — the recorded policy id is checked
+   * against the replayed derivation and the existing parity checks (policy
+   * id at create, commitment at enroll, receipt id at settle) validate the
+   * mirror against the live ledger, so a mismatched adoption fails loudly
+   * instead of drifting. This is what lets a memory-constrained device
+   * split the lifecycle across processes (scripts/e2e-preprod.ts --stage).
+   */
+  async adoptPolicy(input: {
+    insurer: Address;
+    terms: PolicyTerms;
+    createdAt: number;
+    expectedPolicyId: Bytes32;
+    contractAddress: string;
+    fundedAmount: Dust;
+  }): Promise<Policy> {
+    const policy = await this.local.policyService.create(
+      input.insurer,
+      input.terms,
+      input.createdAt,
+    );
+    if (policy.policyId !== input.expectedPolicyId) {
+      throw new PreprodUnavailableError(
+        'network',
+        `adopted policy id mismatch: recorded ${input.expectedPolicyId} vs replayed ${policy.policyId}`,
+      );
+    }
+    this.createNonce++;
+    this.onChainClient_.policyContracts.set(policy.policyId, input.contractAddress);
+    await this.local.policyService.fund(policy.policyId, input.fundedAmount, input.createdAt);
+    return policy;
+  }
+
   // -- AsyncService implementations -----------------------------------------
   //
   // In preprod mode each operation calls the REAL on-chain contract via the
@@ -836,7 +873,7 @@ function sourceIdFromName(name: string): Bytes32 {
  */
 export async function createPreprodRuntime(
   config: ReturnType<typeof preprodConfigFromEnv>,
-): Promise<{ runtime: AsyncConditionRuntime; status: PreprodStatus }> {
+): Promise<{ runtime: PreprodConditionRuntime; status: PreprodStatus }> {
   const endpoints = await probeEndpoints(config);
   const client = new PreprodOnChainClient(config);
   await client.connectWallet();
