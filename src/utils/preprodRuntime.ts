@@ -755,8 +755,10 @@ export class PreprodConditionRuntime implements AsyncConditionRuntime {
 
   readonly triggerService: AsyncTriggerService = {
     registerSource: async (name) => {
-      // Source registration is local (cached) — on-chain trigger verification
-      // uses the source digests submitted with record_trigger.
+      // Source registration is a local cache lookup (no circuit, no tx):
+      // record_trigger verifies the submitted source digests against the
+      // registered set, so both layers must register the same names.
+      this.local.triggerService.registerSource(name);
     },
 
     submitReadings: async (policyId, readings, now) => {
