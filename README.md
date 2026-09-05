@@ -220,6 +220,17 @@ Three tiers, best-first:
 
 ### Live on Preprod (deployed 2026-09-03)
 
+#### Contracts — view on the Midnight Preprod Explorer
+
+| Contract | Explorer link |
+|----------|---------------|
+| **Policy** | [`cc7f513d5aed49bd51b8836e000f0ab2250efc1c882a10a0bccaa21e9b268fe6`](https://preprod.midnightexplorer.com/contracts/0xcc7f513d5aed49bd51b8836e000f0ab2250efc1c882a10a0bccaa21e9b268fe6) |
+| **Settlement** | [`dd8174380525cb46b7691f7502850ce701bc5cd5b7f29f76f20e7f8f3d65c360`](https://preprod.midnightexplorer.com/contracts/0xdd8174380525cb46b7691f7502850ce701bc5cd5b7f29f76f20e7f8f3d65c360) |
+
+Open either link to inspect the live contract on-chain — its state, deploy transaction, and circuit calls.
+
+Deployment details:
+
 | Contract | Address | Block | Tx hash |
 |----------|---------|-------|---------|
 | policy | `cc7f513d5aed49bd51b8836e000f0ab2250efc1c882a10a0bccaa21e9b268fe6` | 2394413 | `7697a8014f5484f44ea2abdeab89351800eef2ceaa24f579f6ab27bd7d681ff7` |
