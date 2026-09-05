@@ -229,6 +229,17 @@ Both transactions `SUCCESS`, independently verified via the Preprod indexer (`co
 
 **Proof-server version requirement:** the local proof server must be **`midnightntwrk/proof-server:8.1.0`** — matching the ledger-v8 8.1.0 / wallet-sdk 3.0.0 line this repo uses. The 9.0.0-rc line produces DUST spend proofs the node rejects with `Custom error: 170` (InvalidDustSpendProof).
 
+### Deploying the frontend (Vercel)
+
+`vercel.json` at the repo root carries the full configuration. When importing the Git repository into Vercel, keep **Root Directory = repository root** (not `frontend/`) — the frontend imports shared protocol code from `../src` and the root owns `package.json` / `package-lock.json`. The pinned settings:
+
+- **Build Command:** `npm run build:frontend` (never the root `npm run build` — that also compiles the Compact contracts, which a frontend deploy neither needs nor should run)
+- **Output Directory:** `frontend/.next` (the Next.js builder looks for output at `entryPath + outputDirectory`; without this it would search for `<root>/.next` and fail)
+- **Node.js version:** 22.x (`engines.node` in package.json; Vercel reads it automatically)
+- **Environment variables:** none required — all public endpoint defaults are baked into `frontend/next.config.js`, and nothing secret is used browser-side. `MIDNIGHT_WALLET_SEED` is CLI-only and must never be added as a Vercel env var.
+
+The browser bundle is audited to contain no Node-only Midnight packages, no wallet SDK internals, and no secrets. Browser on-chain writes stay explicitly unavailable (the runtime fails loud rather than simulating) — the live on-chain path runs through the CLI (`npm run deploy`, `scripts/e2e-preprod.ts`) where the seed-backed provider stack executes locally.
+
 ---
 
 ## Key Files to Read
