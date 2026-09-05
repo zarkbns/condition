@@ -26,7 +26,7 @@ export function ConnectionGate({ children }: { children: ReactNode }) {
       return (
         <div className="card">
           <div className="notice error">
-            <strong>⚠ Preprod is reachable, but no wallet is connected.</strong>
+            <strong>Preprod is reachable, but no wallet is connected.</strong>
             <p style={{ marginTop: 8 }}>
               Condition talks to the real Midnight testnet contracts. You need a
               Lace wallet extension in this browser, or{' '}
@@ -46,7 +46,7 @@ export function ConnectionGate({ children }: { children: ReactNode }) {
             </button>
           </div>
           <div className="privacy-note">
-            <span className="lock">🔒</span>
+            <span className="lock">●</span>
             <span>
               Your holder secret is generated in this browser and never leaves
               it — even the on-chain path only publishes commitments,
@@ -60,7 +60,7 @@ export function ConnectionGate({ children }: { children: ReactNode }) {
       return (
         <div className="card">
           <div className="notice error">
-            <strong>⚠ Preprod network is unreachable from this device.</strong>
+            <strong>Preprod network is unreachable from this device.</strong>
             <p style={{ marginTop: 8 }}>
               The indexer, prover, or node could not be reached (
               {status.endpoints.indexer ? 'indexer ok' : 'indexer down'} ·{' '}
@@ -86,8 +86,8 @@ export function ConnectionGate({ children }: { children: ReactNode }) {
       // unmistakable.
       return (
         <>
-          <div className="notice" style={{ borderColor: 'var(--accent-2)', color: 'var(--accent-2)' }}>
-            <strong>🧪 LOCAL DEV MODE</strong> — you explicitly switched to the
+          <div className="notice" style={{ borderColor: '#f0f0f0', color: '#f0f0f0' }}>
+            <strong>LOCAL DEV MODE</strong> — you explicitly switched to the
             local reference runtime. Transactions here are simulated in-browser
             and do <em>not</em> touch the Preprod chain. Switch back with{' '}
             <button

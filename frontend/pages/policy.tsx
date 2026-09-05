@@ -62,7 +62,7 @@ export default function PolicyPage() {
           (Invariant 5). The payout is deterministic — nobody, not even you,
           chooses the settlement amount later.
           {status.mode === 'preprod' && (
-            <span style={{ color: 'var(--accent)', marginLeft: 8 }}>
+            <span style={{ color: 'var(--text)', marginLeft: 8 }}>
               · Preprod wallet: {status.walletAddress.slice(0, 8)}…
             </span>
           )}
@@ -184,7 +184,7 @@ export default function PolicyPage() {
                   <td><span className={`status ${p.status}`}>{p.status}</span></td>
                   <td>
                     {p.enrollmentCommitment ? (
-                      <span title={p.enrollmentCommitment}>🔒 enrolled</span>
+                      <span title={p.enrollmentCommitment}>● enrolled</span>
                     ) : (
                       <span className="mono-row">—</span>
                     )}

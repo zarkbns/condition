@@ -8,10 +8,20 @@ export default function Home() {
         <meta name="description" content="Policies are transparent. Claims settle privately. Fairness is proven publicly." />
       </Head>
       <section className="hero">
+        <p className="stamp" style={{
+          fontFamily: 'var(--mono)',
+          fontSize: 10,
+          letterSpacing: '0.22em',
+          textTransform: 'uppercase',
+          color: 'var(--text-faint)',
+          marginBottom: 28,
+        }}>
+          parametric insurance · midnight
+        </p>
         <h1>
-          Prove fairness<span className="accent">.</span>
+          Prove fairness.
           <br />
-          Reveal nothing<span className="accent">.</span>
+          <span className="accent">Reveal nothing.</span>
         </h1>
         <p>
           Condition is parametric insurance on Midnight. Policy terms and
@@ -26,21 +36,21 @@ export default function Home() {
 
       <section className="grid three">
         <div className="card">
-          <h2>🔓 Public</h2>
+          <h2>Public</h2>
           <p>
             Policy terms, funding, cross-verified trigger readings,
             proof-hash receipts. Anyone can audit every settlement.
           </p>
         </div>
         <div className="card">
-          <h2>🔒 Private</h2>
+          <h2>Private</h2>
           <p>
             Claimant identity and the holder secret never leave your browser.
             Proofs are generated client-side, in-process.
           </p>
         </div>
         <div className="card">
-          <h2>⚖️ Proven</h2>
+          <h2>Proven</h2>
           <p>
             A ZK proof binds eligibility, nullifier, and the deterministic
             payout — receipts verify from public data alone.
@@ -49,7 +59,7 @@ export default function Home() {
       </section>
 
       <section className="card flow">
-        <h2>The flow</h2>
+        <h2 className="stamp" style={{ color: 'var(--text-dim)' }}>The flow</h2>
         <ol className="flow-steps">
           <li><strong>Create + fund</strong> a policy (public terms, public escrow)</li>
           <li><strong>Enroll</strong> — only a commitment <code>H(policy, secret)</code> is published</li>

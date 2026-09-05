@@ -16,10 +16,6 @@ export interface NetworkBadgeProps {
   onSwitchToLocal?: () => void;
 }
 
-function dot(ok: boolean): string {
-  return ok ? '🟢' : '🔴';
-}
-
 export function NetworkBadge(props: NetworkBadgeProps) {
   const { status, onConnectWallet, onRetry, onSwitchToLocal } = props;
   const { mode, label, walletConnected, walletAddress, endpoints } = status;
@@ -30,11 +26,12 @@ export function NetworkBadge(props: NetworkBadgeProps) {
     mode === 'network-down' || mode === 'connecting' ? 'net-badge-offline' :
     'net-badge-local';
 
+  // Monochrome semantics: white = connected/live, dim = waiting, red = down.
   const dotColor =
-    mode === 'preprod' ? 'var(--accent)' :
-    mode === 'wallet-needed' ? '#ffb454' :
-    mode === 'network-down' || mode === 'connecting' ? 'var(--danger)' :
-    'var(--accent-2)';
+    mode === 'preprod' ? '#f0f0f0' :
+    mode === 'wallet-needed' ? '#8a8a8a' :
+    mode === 'network-down' || mode === 'connecting' ? '#ff4d4d' :
+    '#f0f0f0';
 
   const labelText =
     mode === 'preprod' ? 'PREPROD' :
@@ -63,8 +60,10 @@ export function NetworkBadge(props: NetworkBadgeProps) {
         )}
         {mode === 'network-down' && (
           <>
-            <span className="net-badge-detail">
-              {dot(endpoints.indexer)} {dot(endpoints.prover)} {dot(endpoints.node)}
+            <span className="net-badge-detail" style={{ display: 'inline-flex', gap: 3, alignItems: 'center' }}>
+              <span className="net-badge-dot static" style={{ background: endpoints.indexer ? '#f0f0f0' : '#ff4d4d' }} />
+              <span className="net-badge-dot static" style={{ background: endpoints.prover ? '#f0f0f0' : '#ff4d4d' }} />
+              <span className="net-badge-dot static" style={{ background: endpoints.node ? '#f0f0f0' : '#ff4d4d' }} />
             </span>
             <button className="net-badge-btn" onClick={onRetry}>
               Retry

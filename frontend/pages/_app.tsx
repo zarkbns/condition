@@ -1,3 +1,4 @@
+import Head from 'next/head';
 import '../src/styles/globals.css';
 import type { AppProps } from 'next/app';
 import { ConditionProvider, useCondition } from '../src/components/ConditionProvider';
@@ -7,7 +8,10 @@ function NavBar() {
   const { status, connectWallet, retry, switchToLocal } = useCondition();
   return (
     <nav className="nav">
-      <a href="/" className="brand">⚡ condition</a>
+      <a href="/" className="brand">
+        <img src="/brand/mark-white.png" alt="" aria-hidden="true" />
+        condition
+      </a>
       <div className="nav-links">
         <a href="/policy">create policy</a>
         <a href="/claim">claim</a>
@@ -26,6 +30,9 @@ function NavBar() {
 export default function App({ Component, pageProps }: AppProps) {
   return (
     <ConditionProvider>
+      <Head>
+        <link rel="icon" type="image/png" href="/brand/favicon.png" />
+      </Head>
       <NavBar />
       <main className="container">
         <Component {...pageProps} />

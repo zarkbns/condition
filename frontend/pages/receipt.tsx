@@ -19,17 +19,17 @@ export default function ReceiptPage() {
       const { valid, receipt } = await runtime.settlementService.verifyReceipt(q);
       if (valid && receipt) {
         setResult(
-          `✅ VALID — ${receipt.status} · policy ${receipt.policyId.slice(0, 18)}… · ${new Date(
+          `VALID — ${receipt.status} · policy ${receipt.policyId.slice(0, 18)}… · ${new Date(
             receipt.timestamp * 1000,
           ).toISOString()}`,
         );
       } else {
         setResult(
-          '❌ NOT FOUND or receipt id does not recompute from its public fields.',
+          'NOT FOUND — the receipt id does not recompute from its public fields.',
         );
       }
     } catch (err) {
-      setResult(`❌ ${err instanceof Error ? err.message : String(err)}`);
+      setResult(`ERROR — ${err instanceof Error ? err.message : String(err)}`);
     } finally {
       setVerifying(false);
     }
@@ -49,7 +49,7 @@ export default function ReceiptPage() {
           Anyone can verify any receipt using only public data — no identity,
           no amounts, no private state (Invariant 3).
           {status.mode === 'preprod' && (
-            <span style={{ color: 'var(--accent)', marginLeft: 8 }}>
+            <span style={{ color: 'var(--text)', marginLeft: 8 }}>
               · Preprod wallet: {status.walletAddress.slice(0, 8)}…
             </span>
           )}
@@ -95,7 +95,7 @@ export default function ReceiptPage() {
                   <td><code>{r.receiptId.slice(0, 16)}…</code></td>
                   <td><code>{r.policyId.slice(0, 16)}…</code></td>
                   <td><code>{r.proofHash.slice(0, 16)}…</code></td>
-                  <td>{r.triggerOutcome ? '🔥 fired' : '—'}</td>
+                  <td>{r.triggerOutcome ? 'FIRED' : '—'}</td>
                   <td><span className={`status ${r.status}`}>{r.status}</span></td>
                   <td className="mono-row">
                     {new Date(r.timestamp * 1000).toISOString().slice(0, 16)}
@@ -140,7 +140,7 @@ export default function ReceiptPage() {
       )}
 
       <div className="privacy-note">
-        <span className="lock">⚖️</span>
+        <span className="lock">⚖</span>
         <span>
           A receipt carries exactly: receiptId, policyId, proofHash,
           triggerOutcome, status, timestamp. No amount. No claimant. The

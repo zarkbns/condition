@@ -142,7 +142,7 @@ export default function ClaimPage() {
           Your holder secret was generated in this browser and never leaves
           it. The proof is built client-side; only digests go public.
           {status.mode === 'preprod' && (
-            <span style={{ color: 'var(--accent)', marginLeft: 8 }}>
+            <span style={{ color: 'var(--text)', marginLeft: 8 }}>
               · Preprod wallet: {status.walletAddress.slice(0, 8)}…
             </span>
           )}
@@ -244,7 +244,7 @@ export default function ClaimPage() {
         )}
 
         <div className="privacy-note">
-          <span className="lock">🔒</span>
+          <span className="lock">●</span>
           <span>
             The holder secret lives in this tab&apos;s memory only. Reloading
             starts a fresh session — on the deployed path it lives in your
