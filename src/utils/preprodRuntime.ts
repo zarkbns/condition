@@ -36,8 +36,20 @@
 //     pattern as deploy/deploy.ts).
 
 import { createLocalAsyncRuntime } from './localAsyncRuntime.js';
-import { randomAddress, sourceIdDigest } from '../core/hashing.js';
+import {
+  randomAddress,
+  sourceIdDigest,
+  hexToBytes,
+  nullifierOf,
+  triggerTypeCode,
+  comparisonOpCode,
+  readingDigestOf,
+} from '../core/hashing.js';
 import { PrivateLedger } from '../core/privateLedger.js';
+// Type-only: preprodStack statically imports node:buffer and must never
+// enter the browser bundle — the value import is a dynamic (webpackIgnore'd)
+// import inside connectWallet, Node only.
+import type { LiveStack } from './preprodStack.js';
 import type {
   AsyncConditionRuntime,
   AsyncPolicyService,
@@ -49,6 +61,7 @@ import type {
 import type {
   Address,
   Bytes32,
+  ClaimWitness,
   Dust,
   Policy,
   PolicyTerms,
@@ -100,16 +113,13 @@ export class PreprodUnavailableError extends Error {
 }
 
 /**
- * Shared failure for on-chain operations whose provider stack is not wired
- * yet: they must fail loudly (network-kind PreprodUnavailableError) rather
- * than return placeholder hashes — a fabricated "confirmed" tx would leak
- * into the UI as fake settlement evidence.
+ * Failure for on-chain operations when the Node-only live stack cannot be
+ * built (no seed, no network, browser context). On-chain writes must fail
+ * loudly — never return placeholder hashes — a fabricated "confirmed" tx
+ * would leak into the UI as fake settlement evidence.
  */
-function onChainNotWired(): PreprodUnavailableError {
-  return new PreprodUnavailableError(
-    'network',
-    'on-chain provider stack not wired in this build; the deployer (deploy/deploy.ts) is the reference for the real flow',
-  );
+function stackUnavailable(detail: string): PreprodUnavailableError {
+  return new PreprodUnavailableError('network', detail);
 }
 
 // ---------------------------------------------------------------------------
@@ -154,6 +164,28 @@ export function preprodConfigFromEnv(
 // ---------------------------------------------------------------------------
 // Network probe
 // ---------------------------------------------------------------------------
+
+/**
+ * Dust ledger event id from which a bootstrapped dust wallet resumes replay
+ * (mirrors deploy/deploy.ts — just before the deployer wallet's own dust
+ * registration events).
+ */
+const DUST_RESUME_EVENT_ID = 1_480_937n;
+
+/** Bytes32 hex string from a circuit result (Uint8Array). */
+function bytesToHex32(result: unknown): Bytes32 {
+  if (!(result instanceof Uint8Array) || result.length !== 32) {
+    throw new PreprodUnavailableError(
+      'network',
+      `circuit returned unexpected bytes32 (expected Uint8Array(32), got ${typeof result})`,
+    );
+  }
+  let hex = '0x';
+  for (const b of result) {
+    hex += (b >>> 4).toString(16) + (b & 0xf).toString(16);
+  }
+  return hex;
+}
 
 export async function probeEndpoints(
   config: ReturnType<typeof preprodConfigFromEnv>,
@@ -201,6 +233,8 @@ export class PreprodOnChainClient {
   private walletConnected = false;
   private walletAddress = '';
   private walletBalance: bigint | null = null;
+  /** Live facade stack (Node only) — built lazily by connectWallet(). */
+  private stack: LiveStack | null = null;
 
   /** Map of policyId → contract address for deployed policy instances. */
   readonly policyContracts = new Map<string, string>();
@@ -236,58 +270,48 @@ export class PreprodOnChainClient {
       }
     }
 
-    // Node/CLI: seed-based wallet
+    // Node/CLI: seed-based wallet via the facade stack (the same wiring as
+    // deploy/deploy.ts — unshielded + bootstrapped dust wallets, providers,
+    // per-contract zk config). connectLiveStack assigns this.stack.
     const seed = typeof process !== 'undefined'
       ? process.env['MIDNIGHT_WALLET_SEED']
       : undefined;
-    if (seed) {
-      try {
-        // webpackIgnore: these are Node-only packages (node-fetch → node:fs/
-        // http, zswap wasm). webpack would statically bundle dynamic
-        // imports into the BROWSER chunk and fail — the browser wallet path
-        // is the Lace extension above, never this branch. The ignore comment
-        // leaves a native dynamic import that only resolves under Node
-        // (deploy/deploy.ts, scripts/e2e-preprod.ts).
-        const { WalletBuilder } = await import(/* webpackIgnore: true */ '@midnight-ntwrk/wallet');
-        const { NetworkId } = await import(/* webpackIgnore: true */ '@midnight-ntwrk/zswap');
-        const { setNetworkId } = await import(
-          /* webpackIgnore: true */ '@midnight-ntwrk/midnight-js-network-id'
-        );
-        // midnight-js consumes a string network id for tx construction and
-        // key parsing (and throws if never set); 'preprod' is the string id
-        // of the persistent testnet in this SDK generation. WalletBuilder
-        // itself keeps zswap's numeric NetworkId.TestNet — zswap@4 has no
-        // dedicated Preprod member and Preprod is that testnet.
-        setNetworkId('preprod');
-        const wallet = await WalletBuilder.build(
-          this.config.indexerHttp,
-          this.config.indexerWs,
-          this.config.prover,
-          this.config.node,
-          seed,
-          NetworkId.TestNet,
-          'info' as never,
-        );
-        (wallet as unknown as { start: () => void }).start();
-        const state = await new Promise<{ address: string; balances: Record<string, bigint> }>(
-          (resolve) => {
-            const sub = (wallet as unknown as {
-              state: () => { subscribe: (cb: (s: unknown) => void) => { unsubscribe: () => void } };
-            }).state().subscribe((s: unknown) => {
-              resolve(s as { address: string; balances: Record<string, bigint> });
-              sub.unsubscribe();
-            });
-          },
-        );
-        this.walletAddress = state.address;
-        this.walletBalance = state.balances['coin'] ?? 0n;
-        this.walletConnected = true;
-        return true;
-      } catch {
-        return false;
-      }
+    if (!seed) {
+      return false;
     }
-    return false;
+    if (this.stack) {
+      return true; // already connected
+    }
+    try {
+      // webpackIgnore: preprodStack pulls Node-only packages (node:fs, ws,
+      // zswap wasm). webpack would statically bundle this dynamic import
+      // into the BROWSER chunk and fail — the browser wallet path is the
+      // Lace extension above, never this branch. The ignore comment leaves
+      // a native dynamic import that only resolves under Node.
+      const { connectLiveStack } = await import(/* webpackIgnore: true */ './preprodStack.js');
+      const { join } = await import(/* webpackIgnore: true */ 'node:path');
+      const stack = await connectLiveStack({
+        indexerHttp: this.config.indexerHttp,
+        indexerWs: this.config.indexerWs,
+        proverUrl: this.config.prover,
+        nodeUrl: this.config.node,
+        seed,
+        // Resolved from the repo root by preprodStack itself; the snapshot
+        // is a local cache, gitignored.
+        dustSnapshotPath: join(process.cwd(), 'deploy', 'dust-wallet-snapshot.json'),
+        dustResumeEventId: DUST_RESUME_EVENT_ID,
+      });
+      this.stack = stack;
+      this.walletAddress = stack.address;
+      this.walletBalance = stack.dustBalance;
+      this.walletConnected = true;
+      return true;
+    } catch {
+      // Stack failures (network down, unfunded dust, no snapshot, wasm
+      // issues) surface through the endpoint probe + status; never
+      // simulate.
+      return false;
+    }
   }
 
   /** Get the wallet's current state. */
@@ -299,42 +323,116 @@ export class PreprodOnChainClient {
     };
   }
 
-  /** Disconnect the wallet. */
+  /** Disconnect the wallet and tear down the live stack. */
   async disconnect(): Promise<void> {
+    if (this.stack) {
+      await this.stack.close().catch(() => {});
+      this.stack = null;
+    }
     this.walletConnected = false;
     this.walletAddress = '';
     this.walletBalance = null;
   }
 
   // -------------------------------------------------------------------------
-  // On-chain operations (deployContract + callTx + indexer reads)
+  // On-chain operations (deploy + call + indexer reads via the live stack)
   //
-  // These call the REAL Midnight.js SDK against the Preprod network. They
-  // never silently fall back to the local runtime — on any failure they
-  // throw PreprodUnavailableError so the UI can warn the user.
+  // These run the REAL Midnight.js SDK against the Preprod network through
+  // the shared preprodStack (the exact wiring that deployed the live
+  // contracts — see docs/DEPLOYMENTS.md). They never silently fall back to
+  // the local runtime; on any failure they throw PreprodUnavailableError so
+  // the UI can warn the user.
   //
-  // The deployContract/callTx pattern follows deploy/deploy.ts and the
-  // official Midnight.js SDK examples:
-  //   1. deployContract(providers, { contract, args })
-  //   2. deployedContract.callTx.myCircuit(...args)
-  //   3. read state via indexerPublicDataProvider.queryContractState(address)
-  //      → decode with the compiled contract's ledger() accessor
-  //
-  // The full provider stack is assembled lazily per operation so that the
-  // browser bundle never pulls in Node-only SDK deps until an on-chain op
-  // is actually requested.
+  // Witness privacy (Invariant 2): holder secrets are consumed ONLY inside
+  // the witness closures constructed in this class (holderSecretFor), at
+  // circuit-execution time, in-process. They are never serialized, logged,
+  // or attached to anything that leaves this device.
   // -------------------------------------------------------------------------
 
-  /** Deploy a PolicyContract and call create() on-chain. */
+  /** Holder secrets keyed by policyId — client-side only (Invariant 2). */
+  private readonly holderSecrets = new Map<Bytes32, Bytes32>();
+
+  /** Register the local holder secret for a policy (from claimService.enroll). */
+  registerHolderSecret(policyId: Bytes32, secret: Bytes32): void {
+    this.holderSecrets.set(policyId, secret);
+  }
+
+  private holderSecretFor(policyId: Bytes32): Bytes32 {
+    const secret = this.holderSecrets.get(policyId);
+    if (!secret) {
+      throw new PreprodUnavailableError(
+        'wallet',
+        `no local holder secret for ${policyId} — enroll before on-chain operations`,
+      );
+    }
+    return secret;
+  }
+
+  private requireStack(): LiveStack {
+    if (!this.walletConnected) {
+      throw new PreprodUnavailableError('wallet', 'no wallet connected');
+    }
+    if (!this.stack) {
+      throw stackUnavailable(
+        'on-chain writes need the Node live stack (seed via MIDNIGHT_WALLET_SEED — CLI/e2e only). ' +
+          'A browser wallet connection alone does not wire on-chain transactions yet; ' +
+          'browser on-chain operations stay unavailable rather than simulated',
+      );
+    }
+    return this.stack;
+  }
+
+  /** Record a confirmed tx in the UI-visible history. */
+  private record(
+    action: TxRecord['action'],
+    policyId: Bytes32,
+    txHash: string,
+    timestamp: number,
+    contractAddress?: string,
+  ): void {
+    this.txHistory.push({ action, policyId, txHash, contractAddress, status: 'confirmed', timestamp });
+  }
+
+  /**
+   * Deploy a PolicyContract and call create() on-chain. `nonce` MUST match
+   * the local reference runtime's nonce counter so both layers derive the
+   * same policyId H("condition:policy:v1", insurer, nonce) — the caller
+   * pins this with a parity check. Enum arguments are the 0-based ordinals
+   * shared with triggerTypeCode/comparisonOpCode (the generated circuits
+   * type-check plain numbers).
+   */
   async createPolicyOnChain(
     insurer: Address,
     terms: PolicyTerms,
     now: number,
+    nonce: number,
   ): Promise<{ policyId: Bytes32; contractAddress: string; txHash: string }> {
-    if (!this.walletConnected) {
-      throw new PreprodUnavailableError('wallet', 'no wallet connected');
-    }
-    throw onChainNotWired();
+    const stack = this.requireStack();
+
+    // One policy instance per policy; the create() args are fully public
+    // (policy transparency — Invariant 5).
+    const { address } = await stack.deployContract('policy');
+    const call = await stack.callCircuit('policy', {
+      circuitId: 'create',
+      contractAddress: address,
+      args: [
+        hexToBytes(insurer),
+        triggerTypeCode(terms.triggerType),
+        comparisonOpCode(terms.operator),
+        BigInt(terms.threshold),
+        terms.payoutAmount,
+        terms.premium,
+        BigInt(terms.coverageStart),
+        BigInt(terms.expiry),
+        BigInt(now),
+        BigInt(nonce),
+      ],
+      witnesses: {},
+    });
+    const policyId = bytesToHex32(call.result);
+    this.policyContracts.set(policyId, address);
+    this.record('create', policyId, call.txHash, now, address);
+    return { policyId, contractAddress: address, txHash: call.txHash };
   }
 
   /** Call fund(amount) on a deployed policy contract. */
@@ -343,14 +441,19 @@ export class PreprodOnChainClient {
     amount: Dust,
     now: number,
   ): Promise<{ txHash: string }> {
-    if (!this.walletConnected) {
-      throw new PreprodUnavailableError('wallet', 'no wallet connected');
-    }
+    const stack = this.requireStack();
     const address = this.policyContracts.get(policyId);
     if (!address) {
       throw new PreprodUnavailableError('network', `no deployed policy for ${policyId}`);
     }
-    throw onChainNotWired();
+    const call = await stack.callCircuit('policy', {
+      circuitId: 'fund',
+      contractAddress: address,
+      args: [amount],
+      witnesses: {},
+    });
+    this.record('fund', policyId, call.txHash, now);
+    return { txHash: call.txHash };
   }
 
   /** Call enroll(premium_paid) on a deployed policy contract. */
@@ -359,36 +462,141 @@ export class PreprodOnChainClient {
     premium: Dust,
     now: number,
   ): Promise<{ txHash: string; commitment: Bytes32 }> {
-    if (!this.walletConnected) {
-      throw new PreprodUnavailableError('wallet', 'no wallet connected');
+    const stack = this.requireStack();
+    const address = this.policyContracts.get(policyId);
+    if (!address) {
+      throw new PreprodUnavailableError('network', `no deployed policy for ${policyId}`);
     }
-    throw onChainNotWired();
+    const secret = this.holderSecretFor(policyId);
+    const call = await stack.callCircuit('policy', {
+      circuitId: 'enroll',
+      contractAddress: address,
+      args: [premium],
+      // The holder secret is consumed by the circuit via this local
+      // witness — never disclosed, never serialized (Invariant 2). The
+      // witness returns [nextPrivateState, value]; our contracts are
+      // witness-stateless, so the state slot is undefined.
+      witnesses: {
+        holder_secret: () => [undefined, hexToBytes(secret)],
+      },
+    });
+    const commitment = bytesToHex32(call.result);
+    this.record('enroll', policyId, call.txHash, now, address);
+    return { txHash: call.txHash, commitment };
   }
 
   /** Call record_trigger(value1, value2, source1, source2) on-chain. */
   async recordTriggerOnChain(
     policyId: Bytes32,
-    _value1: number,
-    _value2: number,
-    _source1: Bytes32,
-    _source2: Bytes32,
+    value1: number,
+    value2: number,
+    source1: Bytes32,
+    source2: Bytes32,
     now: number,
   ): Promise<{ txHash: string }> {
-    if (!this.walletConnected) {
-      throw new PreprodUnavailableError('wallet', 'no wallet connected');
+    const stack = this.requireStack();
+    const address = this.policyContracts.get(policyId);
+    if (!address) {
+      throw new PreprodUnavailableError('network', `no deployed policy for ${policyId}`);
     }
-    throw onChainNotWired();
+    const call = await stack.callCircuit('policy', {
+      circuitId: 'record_trigger',
+      contractAddress: address,
+      // Readings and outcome are public — verifiable fairness of the
+      // trigger (Invariant 5); no claimant data involved.
+      args: [BigInt(value1), BigInt(value2), hexToBytes(source1), hexToBytes(source2)],
+      witnesses: {},
+    });
+    this.record('record_trigger', policyId, call.txHash, now);
+    return { txHash: call.txHash };
   }
 
-  /** Deploy a SettlementContract, call link() then settle(). */
+  /**
+   * Deploy a SettlementContract, call link() (public policy facts), then
+   * settle() (private circuit). The ClaimWitness supplies every private
+   * witness value — the holder secret and trigger evidence stay inside the
+   * witness closures and are consumed in-process at circuit-execution time
+   * (Invariant 2); the disclosed receipt carries only proof hash + status +
+   * timestamp (Invariants 1/3).
+   */
   async settleOnChain(
     policyId: Bytes32,
     now: number,
+    witness: ClaimWitness,
   ): Promise<{ txHash: string; receiptId: Bytes32 }> {
-    if (!this.walletConnected) {
-      throw new PreprodUnavailableError('wallet', 'no wallet connected');
+    const stack = this.requireStack();
+    const policyAddress = this.policyContracts.get(policyId);
+    if (!policyAddress) {
+      throw new PreprodUnavailableError('network', `no deployed policy for ${policyId}`);
     }
-    throw onChainNotWired();
+    const secret = this.holderSecretFor(policyId);
+    if (witness.holderSecret !== secret) {
+      throw new PreprodUnavailableError(
+        'wallet',
+        `settle witness secret does not match the enrolled secret for ${policyId}`,
+      );
+    }
+
+    // link() mirrors the policy instance's public facts into the fresh
+    // settlement instance — read straight from the policy ledger.
+    const policyLedgerState = await stack.readLedger('policy', policyAddress);
+    const linkArgs = [
+      policyLedgerState['policy_id'],
+      policyLedgerState['terms_digest_v'],
+      policyLedgerState['enrollment_commitment'],
+      policyLedgerState['payout'],
+      policyLedgerState['start'],
+      policyLedgerState['expiry'],
+      policyLedgerState['trigger_fired'],
+    ];
+
+    const { address } = await stack.deployContract('settlement');
+    await stack.callCircuit('settlement', {
+      circuitId: 'link',
+      contractAddress: address,
+      args: linkArgs,
+      witnesses: {},
+    });
+
+    // settle(): the nullifier is derived locally (nullifierOf — same domain
+    // tag and field order as the in-circuit derive_nullifier_c) and
+    // submitted as the public spent-registry key; the secret itself stays
+    // in the witness closure. Readings are canonicalized digest-ascending
+    // so the in-circuit witness digest hashes the same preimage as
+    // witnessDigestOf (the compactParity pins).
+    const evidence = witness.triggerEvidence;
+    if (evidence.readings.length < 2) {
+      throw new PreprodUnavailableError(
+        'network',
+        `settle witness needs >= 2 trigger readings, got ${evidence.readings.length}`,
+      );
+    }
+    const [reading1, reading2] = [...evidence.readings]
+      .sort((a, b) => {
+        const da = readingDigestOf(a.sourceId, a.value);
+        const db = readingDigestOf(b.sourceId, b.value);
+        return da < db ? -1 : da > db ? 1 : 0;
+      });
+    const nullifier = nullifierOf(policyId, secret);
+    const settleCall = await stack.callCircuit('settlement', {
+      circuitId: 'settle',
+      contractAddress: address,
+      args: [BigInt(now), hexToBytes(nullifier)],
+      witnesses: {
+        holder_secret: () => [undefined, hexToBytes(secret)],
+        claim_time: () => [undefined, BigInt(witness.claimTime)],
+        observed_value: () => [undefined, BigInt(evidence.observedValue)],
+        recorded_at: () => [undefined, BigInt(evidence.recordedAt)],
+        reading1_source: () => [undefined, hexToBytes(reading1!.sourceId)],
+        reading1_value: () => [undefined, BigInt(reading1!.value)],
+        reading2_source: () => [undefined, hexToBytes(reading2!.sourceId)],
+        reading2_value: () => [undefined, BigInt(reading2!.value)],
+      },
+    });
+    const receiptId = bytesToHex32(settleCall.result);
+    this.settlementContracts.set(policyId, address);
+    this.record('settle', policyId, settleCall.txHash, now, address);
+    return { txHash: settleCall.txHash, receiptId };
   }
 
   /** Get the wallet's current state. */
@@ -405,12 +613,18 @@ export class PreprodConditionRuntime implements AsyncConditionRuntime {
   private readonly local: AsyncConditionRuntime;
   private readonly onChainClient_: PreprodOnChainClient;
   private readonly privateLedger_: PrivateLedger;
+  /**
+   * Mirrors the local reference runtime's policy nonce counter: both start
+   * at 0 and increment once per create, so the on-chain create() derives
+   * the same policyId. The parity check after create fails loudly if they
+   * ever drift.
+   */
+  private createNonce = 0;
   private _mode: NetworkMode;
   private _status: PreprodStatus;
 
   constructor(
-    walletConnected: boolean,
-    walletAddress: string,
+    onChainClient: PreprodOnChainClient,
     endpoints: PreprodStatus['endpoints'],
     config: ReturnType<typeof preprodConfigFromEnv>,
   ) {
@@ -419,6 +633,8 @@ export class PreprodConditionRuntime implements AsyncConditionRuntime {
     // separately: Preprod has no hosted proof server, so a down prover must
     // not block the mode — proofs are generated client-side (Invariant 2),
     // and a local Docker proof server is only needed for contract proving.
+    const walletStatus = onChainClient.getStatus();
+    const walletConnected = walletStatus.connected;
     const allOk = endpoints.indexer && endpoints.node;
     this._mode = allOk ? (walletConnected ? 'preprod' : 'wallet-needed') : 'network-down';
     this._status = {
@@ -429,19 +645,21 @@ export class PreprodConditionRuntime implements AsyncConditionRuntime {
           : `${config.networkLabel} — wallet required`
         : `${config.networkLabel} — network down`,
       walletConnected,
-      walletAddress,
-      balance: null,
+      walletAddress: walletStatus.address,
+      balance: walletStatus.balance,
       error: allOk
         ? (walletConnected ? undefined : 'Connect a wallet (Lace extension or MIDNIGHT_WALLET_SEED)')
         : 'Preprod endpoints unreachable from this device',
       endpoints,
     };
 
-    // The local reference runtime is only used by the dev mode (switchToLocal
-    // in the provider) and by the internal proof primitives (submitClaim).
+    // The local reference runtime mirrors every on-chain write for the UI
+    // and supplies the client-side proof primitives (submitClaim). The
+    // on-chain client is the ALREADY-CONNECTED instance from
+    // createPreprodRuntime — a fresh client would have no live stack.
     this.local = createLocalAsyncRuntime();
     this.privateLedger_ = new PrivateLedger();
-    this.onChainClient_ = new PreprodOnChainClient(config);
+    this.onChainClient_ = onChainClient;
   }
 
   get status(): PreprodStatus { return this._status; }
@@ -463,20 +681,21 @@ export class PreprodConditionRuntime implements AsyncConditionRuntime {
 
   readonly policyService: AsyncPolicyService = {
     create: async (insurer, terms, now) => {
-      const result = await this.onChainClient_.createPolicyOnChain(insurer, terms, now);
-      const policyId = result.policyId;
-      this.onChainClient_.policyContracts.set(policyId, result.contractAddress);
-      return {
-        policyId,
-        insurer,
-        terms,
-        termsDigest: '',
-        status: 'ACTIVE' as never,
-        fundedAmount: 0n,
-        enrollmentCommitment: null,
-        trigger: null,
-        createdAt: now,
-      };
+      // Local mirror first: it validates the terms and assigns the
+      // canonical policyId H("condition:policy:v1", insurer, nonce). The
+      // on-chain create() must reproduce that exact id — the parity check
+      // below fails loudly on any cross-layer divergence (the compactParity
+      // pins are the offline guarantee; this is the live one).
+      const policy = await this.local.policyService.create(insurer, terms, now);
+      const nonce = this.createNonce++;
+      const result = await this.onChainClient_.createPolicyOnChain(insurer, terms, now, nonce);
+      if (result.policyId !== policy.policyId) {
+        throw new PreprodUnavailableError(
+          'network',
+          `policy id divergence: on-chain ${result.policyId} vs local ${policy.policyId}`,
+        );
+      }
+      return policy;
     },
 
     fund: async (policyId, amount, now) => {
@@ -485,7 +704,17 @@ export class PreprodConditionRuntime implements AsyncConditionRuntime {
     },
 
     publishEnrollment: async (policyId, commitment, premium, now) => {
-      await this.onChainClient_.enrollOnChain(policyId, premium, now);
+      // On-chain enroll() derives the commitment in-circuit from the
+      // witnessed secret; the local claimService derived it with
+      // enrollmentCommitmentOf. Identical preimages must produce identical
+      // commitments — checked here, before either side is trusted.
+      const result = await this.onChainClient_.enrollOnChain(policyId, premium, now);
+      if (result.commitment !== commitment) {
+        throw new PreprodUnavailableError(
+          'network',
+          `enrollment commitment divergence: on-chain ${result.commitment} vs local ${commitment}`,
+        );
+      }
       return this.local.policyService.publishEnrollment(policyId, commitment, premium, now);
     },
 
@@ -502,8 +731,12 @@ export class PreprodConditionRuntime implements AsyncConditionRuntime {
     enroll: async (policyId, now) => {
       // The secret is generated locally (Invariant 2) and NEVER sent over
       // the wire — only the commitment is published by publishEnrollment.
+      // The on-chain client keeps its own copy so the enroll/settle
+      // circuits can consume it via the local witness provider.
       const result = await this.local.claimService.enroll(policyId, now);
-      this.privateLedger_.enroll(policyId, this.local.claimService.secretFor(policyId));
+      const secret = this.local.claimService.secretFor(policyId);
+      this.privateLedger_.enroll(policyId, secret);
+      this.onChainClient_.registerHolderSecret(policyId, secret);
       return result;
     },
 
@@ -543,10 +776,25 @@ export class PreprodConditionRuntime implements AsyncConditionRuntime {
 
   readonly settlementService: AsyncSettlementService = {
     settle: async (now, proof, policyId, witnessProvider) => {
-      const result = await this.onChainClient_.settleOnChain(policyId, now);
+      // On-chain settle is authoritative (public receipt, spent nullifier).
+      // The ClaimWitness feeds the on-chain witnesses locally, in-process
+      // (Invariant 2); the local mirror then replays the settlement so the
+      // UI's private ledger and receipt list stay in lockstep — its receipt
+      // id must equal the on-chain circuit's (live parity check).
+      const witness = witnessProvider();
+      const result = await this.onChainClient_.settleOnChain(policyId, now, witness);
       const localResult = await this.local.settlementService.settle(
         now, proof, policyId, witnessProvider,
       );
+      if (result.receiptId !== localResult.receipt.receiptId) {
+        throw new PreprodUnavailableError(
+          'network',
+          `receipt id divergence: on-chain ${result.receiptId} vs local ${localResult.receipt.receiptId}`,
+        );
+      }
+      // Credit the runtime's private ledger (the one secretFor reads) —
+      // per the AsyncClaimService contract, settlement credits internally
+      // so callers never double-credit.
       this.privateLedger_.credit(policyId, localResult.releasedAmount, localResult.receipt.timestamp);
       return { ...localResult, txHash: result.txHash };
     },
@@ -589,15 +837,10 @@ export async function createPreprodRuntime(
 ): Promise<{ runtime: AsyncConditionRuntime; status: PreprodStatus }> {
   const endpoints = await probeEndpoints(config);
   const client = new PreprodOnChainClient(config);
-  const walletConnected = await client.connectWallet();
-  const walletStatus = client.getStatus();
+  await client.connectWallet();
 
-  const runtime = new PreprodConditionRuntime(
-    walletConnected,
-    walletStatus.address,
-    endpoints,
-    config,
-  );
+  // The runtime reuses THIS client (its live stack is the connected one).
+  const runtime = new PreprodConditionRuntime(client, endpoints, config);
 
   return { runtime, status: runtime.status };
 }

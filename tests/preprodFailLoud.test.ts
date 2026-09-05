@@ -46,7 +46,7 @@ describe('preprod on-chain operations fail loud while unwired', () => {
         premium: 100_000_000n,
         coverageStart: NOW,
         expiry: NOW + 30 * 86_400,
-      }, NOW),
+      }, NOW, 0),
     );
     expect(err).toBeInstanceOf(PreprodUnavailableError);
     expect(err.kind).toBe('wallet');
@@ -67,11 +67,25 @@ describe('preprod on-chain operations fail loud while unwired', () => {
         premium: 100_000_000n,
         coverageStart: NOW,
         expiry: NOW + 30 * 86_400,
-      }, NOW),
+      }, NOW, 0),
       client.fundOnChain(policyId, 5_000_000_000n, NOW),
       client.enrollOnChain(policyId, 100_000_000n, NOW),
       client.recordTriggerOnChain(policyId, 4000, 3600, '0x' + '01'.repeat(32), '0x' + '02'.repeat(32), NOW),
-      client.settleOnChain(policyId, NOW),
+      client.settleOnChain(policyId, NOW, {
+        policyId,
+        holderSecret: '0x' + 'cd'.repeat(32),
+        settlementAmount: 0n,
+        claimTime: NOW,
+        triggerEvidence: {
+          readings: [
+            { sourceId: '0x' + '01'.repeat(32), value: 4000 },
+            { sourceId: '0x' + '02'.repeat(32), value: 3600 },
+          ],
+          outcome: true,
+          observedValue: 3600,
+          recordedAt: NOW,
+        },
+      }),
     ];
 
     for (const op of ops) {
@@ -87,7 +101,21 @@ describe('preprod on-chain operations fail loud while unwired', () => {
     client.policyContracts.set(policyId, '0xdeadbeef');
 
     await client.fundOnChain(policyId, 1n, NOW).catch(() => {});
-    await client.settleOnChain(policyId, NOW).catch(() => {});
+    await client.settleOnChain(policyId, NOW, {
+      policyId,
+      holderSecret: '0x' + 'cd'.repeat(32),
+      settlementAmount: 0n,
+      claimTime: NOW,
+      triggerEvidence: {
+        readings: [
+          { sourceId: '0x' + '01'.repeat(32), value: 4000 },
+          { sourceId: '0x' + '02'.repeat(32), value: 3600 },
+        ],
+        outcome: true,
+        observedValue: 3600,
+        recordedAt: NOW,
+      },
+    }).catch(() => {});
 
     expect(client.getTxHistory()).toHaveLength(0);
     expect(client.settlementContracts.size).toBe(0);

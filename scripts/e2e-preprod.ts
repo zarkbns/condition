@@ -1,26 +1,32 @@
-// E2E — complete live Preprod lifecycle through the real Midnight.js SDK
+// E2E — complete live Preprod lifecycle through the REAL runtime the
+// frontend uses (PreprodConditionRuntime over the live facade stack):
 //
-//   create policy → fund → enroll → trigger → private claim → settle → public receipt
+//   create policy → fund → enroll → 2-source trigger → private claim →
+//   settle → public receipt
 //
-// This is the "real on-chain interactions" proof the frontend is wired to:
-// it builds the actual Midnight.js provider stack (wallet, indexer, prover,
-// zk-config), deploys the compiled PolicyContract + SettlementContract, calls
-// the circuits (create/fund/enroll/record_trigger/link/settle), and prints
-// the real Preprod tx hashes + contract addresses + receipt id at each step.
+// Every operation runs the exact code path the UI drives, against the
+// deployed contract family, with live parity checks (policyId, enrollment
+// commitment, receipt id) between the on-chain circuits and the local
+// reference runtime.
 //
 // Privacy (Invariant 1/2): the holder secret lives only inside the local
-// witness provider; the script never logs it and the on-chain settle()
+// witness closures; the script never logs it and the on-chain settle()
 // circuit only ever discloses proof hash + status + timestamp.
 //
 // Usage:
 //   MIDNIGHT_WALLET_SEED=<hex-seed> npx tsx scripts/e2e-preprod.ts
 //
-// When the network is unreachable or the seed is missing, the script FAILS
-// LOUDLY with a clear PreprodUnavailableError — it never silently falls back
-// to a simulation (the frontend shows the same warning states).
+// Requires a reachable proof server for contract proving (the local Docker
+// one at http://127.0.0.1:6300 by default — see docs/DEPLOYMENTS.md). When
+// the network is unreachable or the seed is missing, the script FAILS
+// LOUDLY — it never silently falls back to a simulation.
 
-import { probeEndpoints, preprodConfigFromEnv, PreprodOnChainClient } from '../src/utils/preprodRuntime.js';
-import { createLocalAsyncRuntime } from '../src/utils/localAsyncRuntime.js';
+import {
+  probeEndpoints,
+  preprodConfigFromEnv,
+  createPreprodRuntime,
+} from '../src/utils/preprodRuntime.js';
+import { inCoverageWindow } from '../src/core/payout.js';
 import { randomAddress } from '../src/core/hashing.js';
 import { TriggerType, ComparisonOp, type Dust } from '../src/types/index.js';
 
@@ -51,34 +57,28 @@ async function main(): Promise<void> {
     process.exit(1);
   }
   if (!endpoints.prover) {
-    console.warn(
-      `  ⚠ no proof server reachable at ${config.prover} — run a local one:\n` +
-      `    docker run -p 6300:6300 midnightntwrk/proof-server:latest midnight-proof-server -v\n` +
-      `  Continuing: proofs are generated client-side; contract proving may need the server.`,
-    );
-  }
-
-  step('CONNECT WALLET (CLI, MIDNIGHT_WALLET_SEED)');
-  const client = new PreprodOnChainClient(config);
-  const ok = await client.connectWallet();
-  if (!ok) {
     console.error(
-      `\n✗ No wallet connected. Set MIDNIGHT_WALLET_SEED (a funded preprod seed) to run on-chain.\n` +
-      `  The frontend shows the 'Connect Wallet' action instead of simulating.`,
+      `  ✗ no proof server reachable at ${config.prover} — contract proving will fail.\n` +
+      `    Start the local proof server first (see docs/DEPLOYMENTS.md and .qwen/launch-proofserver810.sh).`,
     );
     process.exit(1);
   }
-  const wallet = client.getStatus();
-  console.log(`  wallet ${wallet.address.slice(0, 12)}… balance ${wallet.balance ?? 0n} dust`);
 
-  // The local reference runtime supplies the client-side proof primitives
-  // (submitClaim) and the public-state mirror — proof generation is always
-  // local (Invariant 2).
-  const local = createLocalAsyncRuntime();
+  step('CONNECT (live facade stack — wallet, providers, dust bootstrap)');
+  const { runtime, status } = await createPreprodRuntime(config);
+  console.log(`  mode          ${status.mode}`);
+  console.log(`  wallet        ${status.walletAddress}`);
+  console.log(`  dust balance  ${status.balance ?? 0n}`);
+  if (status.mode !== 'preprod') {
+    console.error(
+      `\n✗ Runtime not in preprod mode (${status.mode}: ${status.error ?? 'unknown'}).`,
+    );
+    console.error(`  Set MIDNIGHT_WALLET_SEED (a funded preprod seed) to run on-chain.`);
+    process.exit(1);
+  }
+
   const insurer = randomAddress();
-
-  step('CREATE POLICY (deploy PolicyContract + create())');
-  const created = await client.createPolicyOnChain(insurer, {
+  const terms = {
     triggerType: TriggerType.TEMPERATURE,
     operator: ComparisonOp.GTE,
     threshold: THRESHOLD,
@@ -86,77 +86,74 @@ async function main(): Promise<void> {
     premium: PREMIUM,
     coverageStart: NOW,
     expiry: EXPIRY,
-  }, NOW);
-  const policyId = created.policyId;
-  client.policyContracts.set(policyId, created.contractAddress);
-  console.log(`  policyId      ${policyId}`);
-  console.log(`  contract      ${created.contractAddress}`);
-  console.log(`  tx            ${created.txHash}`);
+  };
+
+  step('CREATE POLICY (deploy PolicyContract + create(), live parity check)');
+  const policy = await runtime.policyService.create(insurer, terms, NOW);
+  console.log(`  policyId      ${policy.policyId}`);
+  console.log(`  termsDigest   ${policy.termsDigest}`);
 
   step('FUND ESCROW (fund())');
-  const funded = await client.fundOnChain(policyId, PAYOUT, NOW);
-  console.log(`  tx            ${funded.txHash}`);
+  await runtime.policyService.fund(policy.policyId, PAYOUT, NOW);
+  console.log('  funded on-chain + local mirror');
 
-  step('ENROLL HOLDER (enroll() — commitment only)');
-  const { commitment } = await local.claimService.enroll(policyId, NOW);
-  const enrolled = await client.enrollOnChain(policyId, PREMIUM, NOW);
+  step('ENROLL HOLDER (enroll() — commitment only, client-side secret)');
+  const { commitment } = await runtime.claimService.enroll(policy.policyId, NOW);
+  await runtime.policyService.publishEnrollment(policy.policyId, commitment, PREMIUM, NOW);
   console.log(`  commitment    ${commitment}`);
-  console.log(`  tx            ${enrolled.txHash}`);
 
   step('RECORD 2-SOURCE TRIGGER (record_trigger())');
-  const sourceA = 'open-meteo';
-  const sourceB = 'noaa';
-  await local.triggerService.registerSource(sourceA);
-  await local.triggerService.registerSource(sourceB);
-  const triggerRecord = await local.triggerService.submitReadings(
-    policyId,
+  await runtime.triggerService.registerSource('open-meteo');
+  await runtime.triggerService.registerSource('noaa');
+  await runtime.triggerService.submitReadings(
+    policy.policyId,
     [
-      { source: sourceA, value: 4000 },
-      { source: sourceB, value: 3600 },
+      { source: 'open-meteo', value: 4000 },
+      { source: 'noaa', value: 3600 },
     ],
     NOW + 10,
   );
-  const trig = await client.recordTriggerOnChain(
-    policyId, 4000, 3600,
-    '0x' + '00'.repeat(32),
-    '0x' + '00'.repeat(32),
-    NOW + 10,
-  );
-  console.log(`  outcome       ${triggerRecord.outcome} (observed ${triggerRecord.observedValue})`);
-  console.log(`  tx            ${trig.txHash}`);
+  const triggered = await runtime.policyService.getPolicy(policy.policyId);
+  console.log(`  outcome       ${triggered.trigger?.outcome} (observed ${triggered.trigger?.observedValue})`);
 
   step('PRIVATE CLAIM (client-side proof — Invariant 2)');
-  const proof = await local.claimService.submitClaim(policyId, NOW + 20);
+  const claimTime = NOW + 20;
+  const proof = await runtime.claimService.submitClaim(policy.policyId, claimTime);
   console.log(`  nullifier     ${proof.publicInputs.nullifier}`);
   console.log(`  proofHash     ${proof.proofHash}`);
-  console.log(`  statement     ${proof.statement}`);
 
   step('SETTLE ON PREPROD (deploy SettlementContract + link() + settle())');
-  const policySnapshot = await local.policyService.getPolicy(policyId);
+  const settleTime = NOW + 30;
+  const snapshot = await runtime.policyService.getPolicy(policy.policyId);
   const witnessProvider = () => ({
-    policyId,
-    holderSecret: local.claimService.secretFor(policyId),
-    settlementAmount: PAYOUT,
-    claimTime: NOW + 20,
-    triggerEvidence: policySnapshot.trigger ?? { readings: [], outcome: false, observedValue: 0, recordedAt: NOW },
+    policyId: policy.policyId,
+    holderSecret: runtime.claimService.secretFor(policy.policyId),
+    settlementAmount:
+      snapshot.trigger?.outcome && inCoverageWindow(snapshot.terms, claimTime)
+        ? snapshot.terms.payoutAmount
+        : 0n,
+    claimTime,
+    triggerEvidence:
+      snapshot.trigger ?? { readings: [], outcome: false, observedValue: 0, recordedAt: 0 },
   });
-  const settlement = await client.settleOnChain(policyId, NOW + 30);
-  const localSettle = await local.settlementService.settle(
-    NOW + 30, proof, policyId, witnessProvider as never,
+  const settlement = await runtime.settlementService.settle(
+    settleTime, proof, policy.policyId, witnessProvider as never,
   );
-  console.log(`  receipt id    ${localSettle.receipt.receiptId}`);
-  console.log(`  status        ${localSettle.receipt.status}`);
-  console.log(`  tx            ${settlement.txHash}`);
+  console.log(`  receipt id    ${settlement.receipt.receiptId}`);
+  console.log(`  status        ${settlement.receipt.status}`);
+  console.log(`  released      ${settlement.releasedAmount} (private ledger only)`);
 
   step('PUBLIC RECEIPT (verifiable from public data alone)');
-  const verify = await local.settlementService.verifyReceipt(localSettle.receipt.receiptId);
+  const verify = await runtime.settlementService.verifyReceipt(settlement.receipt.receiptId);
   console.log(`  verify        ${verify.valid ? '✅ VALID' : '❌ INVALID'}`);
-  console.log(`  receipt       ${JSON.stringify(localSettle.receipt)}`);
 
   step('RESULT');
+  const history = runtime.txHistory();
   console.log('  state machine: create → fund → enroll → trigger → claim → settle → receipt');
-  console.log(`  tx hashes: ${client.getTxHistory().map((t) => t.action).join(' → ')}`);
-  console.log(`  ${client.getTxHistory().length} on-chain transactions recorded`);
+  console.log(`  on-chain txs  ${history.map((t) => t.action).join(' → ')}`);
+  for (const t of history) {
+    console.log(`    ${t.action.padEnd(14)} ${t.txHash}`);
+  }
   console.log('\n✓ LIVE PREPROD E2E COMPLETE');
 }
 
