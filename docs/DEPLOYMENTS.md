@@ -39,6 +39,12 @@ status `SETTLED` — deterministic from public data
 (`receiptIdDigest(policyId, proofHash, outcome, settled, timestamp)`), so
 anyone can recompute it and match the on-chain settle circuit's output.
 
+The app now carries its own independent verifier: `/verify` recomputes the
+receipt id from the live indexer state in the browser (same checks, no
+session), `/explorer` shows the contracts/blocks/txs, and
+`npx tsx scripts/verify-receipt.ts` re-runs the full evidence chain from the
+CLI. See `BUILD_SPEC.md §7.5` for the capability assessment.
+
 Browse the same two contracts on the
 [Midnight Preprod Explorer](https://preprod.midnightexplorer.com):
 [policy `00147690…d08a01`](https://preprod.midnightexplorer.com/contracts/0x00147690d83e6501e237774fbd934956253032010e3a7e3258e1c162f4d08a01)

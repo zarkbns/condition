@@ -273,6 +273,40 @@ Every state change emits a public event (Invariant: complete event trail):
 `PolicyCreated, PolicyFunded, HolderEnrolled, TriggerRecorded, TriggerRejected, ClaimSettled, ClaimDenied, ReceiptPublished, PolicyExpired, PolicyClosed`.
 In the reference runtime these are the public ledger's append-only event log; tests assert one event per transition.
 
+### 7.5 Public evidence capability assessment (Preprod, probed 2026-09-06)
+
+What the deployed contracts + Midnight Preprod indexer expose to an
+independent third party (plain HTTPS, no wallet, no session):
+
+| Capability | How | Verified live |
+|---|---|---|
+| Fetch current contract public state | `contractAction(address){state}` (indexer v3/v4) → `ContractState.deserialize` → generated `ledger()` | yes, both contracts |
+| Receipt fields on chain | settlement ledger stores `policy_id`, `trigger_fired`, `last_receipt_hash`, `last_status`, `last_timestamp` + counts + spent-nullifier set | yes |
+| Independent receipt verification | `receiptIdDigest` recomputed from those five fields; compare with claimed id (§4/§5.3) | yes — `/verify`, `scripts/verify-receipt.ts` |
+| Cross-contract mirroring | `link()` copies policy facts into the settlement instance; both ledgers compared | yes |
+| Terms transparency | terms digest recomputes from the policy ledger's public terms | yes |
+| Tx / block detail | `transactions(offset:{hash})`, `block(offset:{height})`, per-action `entryPoint` names the circuit | yes |
+| Chain head | no head query — binary search over block existence | yes |
+
+Honest limits (contract design, not indexer gaps):
+
+- **Latest settlement only.** `settle()` overwrites `last_*`; a receipt
+  superseded by a later settlement on the same contract cannot be
+  recomputed from current state. A receipt-history commitment (Merkle of
+  `receipt_digest`s) would fix this — Wave 2 hook, requires redeploy.
+- **Amount never verifiable.** The payout is committed
+  (`payout_commitment_c`), not disclosed; a verifier learns that a
+  settlement happened, never how much. (Privacy Invariant 1/3 — by design.)
+- **Nullifier set membership only.** The set supports `member`/`size`;
+  membership of a known nullifier is checkable, the set cannot be listed.
+- **No by-receipt-id search.** Verification runs against a known
+  settlement contract (the public deployments in docs/DEPLOYMENTS.md, or a
+  user-supplied address).
+
+Surfaces: `/verify` (public verifier, session-free), `/explorer`
+(blockchain-explorer IA over the same indexer), `src/utils/publicChain.ts`
+(browser-safe evidence client), `scripts/verify-receipt.ts` (CLI re-run).
+
 ---
 
 ## 8. Error Catalog

@@ -119,6 +119,8 @@ Then in the browser — one guided journey through the six lifecycle stages, wit
 | 01 Policy · 02 Fund | `/policy` | Create the policy (terms public, immutable), fund the escrow, enroll as holder — only `H(policyId, secret)` is published |
 | 03 Verified Event · 04 Claim · 05 Private Settlement | `/claim` | Record the 2-source trigger, generate the proof client-side, settle privately (nullifier spent) |
 | 06 Proof / Receipt | `/receipt` | Browse and recompute public receipts from public data alone |
+| — Verify | `/verify` | **Stranger mode:** paste a receipt id, the browser fetches the contract state from the Preprod indexer and recomputes the digest — no wallet, no session |
+| — Explore | `/explorer` | Live Preprod blocks, txs and the Condition contract registry, with public data and redacted-private data shown as such |
 
 These pages run the protocol client-side. A banner on every page states which runtime is driving: the **local reference** runtime (an explicit opt-in — the real state machine, digests and proofs, but nothing written on-chain), or Midnight Preprod. Connecting a Midnight wallet in the browser is detected where implemented but does not yet submit transactions — see [What runs where](#what-runs-where-browser-vs-cli).
 
@@ -164,7 +166,7 @@ condition/
 │   └── utils/midnight.ts        # Runtime context factory
 │
 ├── frontend/                    # Next.js Pages Router (zero API routes by design)
-│   ├── pages/                   # /, /policy, /claim, /receipt
+│   ├── pages/                   # /, /policy, /claim, /receipt, /verify, /explorer
 │   └── src/components/          # ConditionProvider (in-browser runtime context)
 │
 ├── tests/                       # Vitest suites (BUILD_SPEC §9)
