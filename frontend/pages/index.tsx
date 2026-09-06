@@ -38,17 +38,17 @@ const PILLARS = [
 const FLOW = [
   {
     index: '01',
-    title: 'Create + fund a policy',
-    body: 'Terms and escrow go public the moment the policy exists.',
+    title: 'Policy',
+    body: 'Terms are fixed and public the instant the policy exists.',
   },
   {
     index: '02',
-    title: 'Enroll',
-    body: 'Only a commitment is published — H(policy, secret). Nothing else.',
+    title: 'Fund',
+    body: 'Escrow must cover payout plus premium. The holder enrolls with a commitment only.',
   },
   {
     index: '03',
-    title: 'Trigger',
+    title: 'Verified Event',
     body: 'Two independent sources must agree before a payout can fire.',
   },
   {
@@ -58,7 +58,12 @@ const FLOW = [
   },
   {
     index: '05',
-    title: 'Receipt',
+    title: 'Private Settlement',
+    body: 'Settles on the private ledger and spends the nullifier. No double claim.',
+  },
+  {
+    index: '06',
+    title: 'Proof / Receipt',
     body: 'The proof hash goes public. Nothing about you does.',
   },
 ];
@@ -236,9 +241,9 @@ export default function Home() {
         <div className="tw-mx-auto tw-max-w-page tw-px-6 tw-py-24 md:tw-py-32">
           <Stamp>[ THE FLOW ]</Stamp>
           <h2 className="tw-font-display tw-text-heading tw-font-normal tw-mt-6 tw-text-ink">
-            Five steps. <span className="tw-italic tw-text-dim">One proof.</span>
+            Six stages. <span className="tw-italic tw-text-dim">One proof.</span>
           </h2>
-          <ol className="tw-mt-16 tw-grid tw-gap-px tw-border tw-border-line tw-bg-line md:tw-grid-cols-2 lg:tw-grid-cols-5">
+          <ol className="tw-mt-16 tw-grid tw-gap-px tw-border tw-border-line tw-bg-line md:tw-grid-cols-2 lg:tw-grid-cols-3">
             {FLOW.map((s) => (
               <li
                 key={s.index}
@@ -248,7 +253,7 @@ export default function Home() {
                   <span className="tw-font-display tw-text-3xl tw-font-normal tw-text-ink">
                     {s.index}
                   </span>
-                  <span className="tw-font-mono tw-text-micro tw-text-faint">/05</span>
+                  <span className="tw-font-mono tw-text-micro tw-text-faint">/06</span>
                 </div>
                 <h3 className="tw-mt-6 tw-text-sm tw-font-medium tw-tracking-wide tw-text-ink tw-uppercase">
                   {s.title}

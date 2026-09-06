@@ -16,11 +16,11 @@
   --text-dim: #8a8a8a;
   --text-faint: #4d4d4d;
 
-  /* Status colors: white (success/active), graded grays (neutral), and the
-     single permitted chroma — danger red, because an error that whispers
-     gets missed. Everything else stays monochrome. */
+  /* Status: strictly achromatic. Errors read through luminance, stroke and
+     the [ ERROR ] stamp — an error that needs a hue to be legible is an
+     error state that hasn't been designed. See DESIGN.md. */
   --ok: #f0f0f0;
-  --danger: #ff4d4d;
+  --danger: #f0f0f0;
   --warn: #8a8a8a;
 
   --mono: ui-monospace, 'SF Mono', 'Cascadia Code', 'JetBrains Mono', Menlo, monospace;
@@ -224,16 +224,18 @@ main.container {
   margin-top: 1px;
 }
 
-/* Metadata stamp — [ LABEL ] — used for section eyebrows ---------------------- */
+/* Metadata stamp — the brackets are literal in markup (see DESIGN.md): they
+   are part of the copy, never generated, so they survive copy/paste and
+   screen readers alike. */
 
-.stamp::before {
-  content: '[ ';
-  color: var(--text-faint);
-}
-
-.stamp::after {
-  content: ' ]';
-  color: var(--text-faint);
+.stamp {
+  display: inline-block;
+  font-family: var(--mono);
+  font-size: 10px;
+  font-weight: 500;
+  letter-spacing: 0.22em;
+  text-transform: uppercase;
+  color: var(--text-dim);
 }
 
 /* Forms ------------------------------------------------------------------------ */
@@ -491,8 +493,11 @@ code {
 }
 
 .notice.error {
-  color: var(--danger);
-  border-color: var(--danger);
+  /* No red: the left rule + brighter border + [ ERROR ] stamp carry it. */
+  color: var(--text);
+  border-color: var(--border-strong);
+  border-left: 2px solid #f0f0f0;
+  padding-left: 14px;
 }
 
 .notice.success {
@@ -683,6 +688,616 @@ code {
 
 .badge-btn-inline:hover {
   border-color: #f0f0f0;
+}
+
+/* Journey rail — the six lifecycle stages, rendered on every product page. */
+
+.rail {
+  margin: 4px 0 28px;
+}
+
+.rail-track {
+  list-style: none;
+  display: flex;
+  align-items: flex-start;
+  gap: 0;
+}
+
+.rail-step {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  flex: 1;
+  min-width: 0;
+}
+
+.rail-step a {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  text-decoration: none;
+  padding: 6px 8px;
+  width: 100%;
+}
+
+.rail-n {
+  font-family: var(--mono);
+  font-size: 12px;
+  letter-spacing: 0.06em;
+  color: var(--text-faint);
+  width: 30px;
+  height: 30px;
+  display: grid;
+  place-items: center;
+  border: 1px solid var(--border);
+  border-radius: 0;
+  background: var(--bg);
+  transition: color 150ms var(--ease-out), border-color 150ms var(--ease-out), background 150ms var(--ease-out);
+}
+
+.rail-label {
+  font-size: 10px;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--text-faint);
+  text-align: center;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 100%;
+  transition: color 150ms var(--ease-out);
+}
+
+/* connector: the 1px rule between steps */
+.rail-link {
+  position: absolute;
+  top: 21px;
+  left: calc(50% + 22px);
+  right: calc(-50% + 22px);
+  height: 1px;
+  background: var(--border);
+  transition: background 200ms var(--ease-out);
+}
+
+.rail-link.traversed {
+  background: var(--border-strong);
+}
+
+.rail-step.done .rail-n {
+  color: var(--text);
+  border-color: var(--border-strong);
+}
+
+.rail-step.done .rail-label {
+  color: var(--text-dim);
+}
+
+.rail-step.current .rail-n {
+  color: #000000;
+  background: #f0f0f0;
+  border-color: #f0f0f0;
+}
+
+.rail-step.current .rail-label {
+  color: var(--text);
+}
+
+@media (hover: hover) and (pointer: fine) {
+  .rail-step a:hover .rail-n {
+    border-color: #f0f0f0;
+  }
+  .rail-step a:hover .rail-label {
+    color: var(--text);
+  }
+}
+
+/* Narrow viewports: the rail collapses to a counter so it never eats the
+   vertical space a phone has least of. */
+.rail-compact {
+  display: none;
+  align-items: center;
+  gap: 10px;
+  margin: 2px 0 22px;
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  background: var(--bg-raised);
+}
+
+.rail-compact-n {
+  font-family: var(--mono);
+  font-size: 11px;
+  color: var(--text);
+  letter-spacing: 0.08em;
+}
+
+.rail-compact-label {
+  font-size: 10px;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: var(--text-dim);
+  flex: 1;
+}
+
+.rail-compact-done {
+  font-family: var(--mono);
+  font-size: 10px;
+  color: var(--text-faint);
+}
+
+/* Mode banner — the honesty layer. */
+
+.mode-banner {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 10px 14px;
+  border: 1px solid var(--border-strong);
+  border-left: 2px solid var(--border-strong);
+  background: var(--bg-raised);
+  padding: 12px 14px;
+  margin-bottom: 24px;
+}
+
+.mode-banner.live {
+  border-left-color: #f0f0f0;
+}
+
+.mode-tag {
+  font-family: var(--mono);
+  font-size: 10px;
+  font-weight: 500;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  color: var(--text);
+  border: 1px solid var(--border-strong);
+  padding: 3px 8px;
+  white-space: nowrap;
+}
+
+.mode-copy {
+  font-size: 12.5px;
+  line-height: 1.55;
+  color: var(--text-dim);
+  flex: 1 1 320px;
+  min-width: 0;
+}
+
+.mode-copy strong {
+  color: var(--text);
+  font-weight: 500;
+}
+
+.mode-link {
+  font-family: var(--mono);
+  font-size: 11px;
+  color: var(--text);
+  text-decoration: none;
+  border-bottom: 1px solid var(--border-strong);
+  white-space: nowrap;
+}
+
+.mode-link:hover {
+  border-bottom-color: #f0f0f0;
+}
+
+.mode-actions {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  flex-wrap: wrap;
+}
+
+/* Stage surfaces */
+
+.stage-card {
+  margin-bottom: 4px;
+}
+
+.stage-list {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.policy-row {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.policy-row-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.policy-row-head code {
+  font-size: 12px;
+}
+
+.policy-terms {
+  font-size: 13px;
+  color: var(--text-dim);
+  margin: 0;
+}
+
+.escrow {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.escrow-bar {
+  flex: 1 1 160px;
+  min-width: 120px;
+  height: 2px;
+  background: var(--border);
+  overflow: hidden;
+}
+
+.escrow-bar span {
+  display: block;
+  height: 100%;
+  background: #f0f0f0;
+  transition: width 300ms var(--ease-out);
+}
+
+.terms-preview {
+  margin-top: 24px;
+  padding: 16px 18px;
+  border: 1px dashed var(--border-strong);
+  background: var(--bg-input);
+}
+
+.terms-preview p {
+  margin: 8px 0 0;
+  font-size: 14px;
+  line-height: 1.6;
+  color: var(--text-dim);
+}
+
+.terms-preview strong {
+  color: var(--text);
+  font-weight: 500;
+}
+
+/* Evidence rows — the cryptographic layer, always mono */
+
+.evidence {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin: 0;
+}
+
+.evidence-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 18px;
+  font-family: var(--mono);
+  font-size: 12px;
+}
+
+.evidence-row dt {
+  color: var(--text-faint);
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  font-size: 10px;
+  white-space: nowrap;
+}
+
+.evidence-row dd {
+  margin: 0;
+  color: var(--text-dim);
+  text-align: right;
+  word-break: break-all;
+}
+
+.evidence-row dd a {
+  color: var(--text);
+  text-decoration: none;
+  border-bottom: 1px solid var(--border-strong);
+}
+
+.evidence-row dd a:hover {
+  border-bottom-color: #f0f0f0;
+}
+
+.redacted {
+  color: var(--text) !important;
+  letter-spacing: 0.06em;
+}
+
+/* Verified event */
+
+.source-pair {
+  display: flex;
+  align-items: stretch;
+  gap: 12px;
+  margin-top: 22px;
+  flex-wrap: wrap;
+}
+
+.source {
+  flex: 1 1 160px;
+  min-width: 0;
+  border: 1px solid var(--border);
+  background: var(--bg-input);
+  padding: 14px 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.source strong {
+  font-family: var(--mono);
+  font-size: 12px;
+  font-weight: 400;
+  color: var(--text-faint);
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+}
+
+.source-vs {
+  align-self: center;
+  font-family: var(--mono);
+  font-size: 10px;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  color: var(--text-faint);
+}
+
+.event-fired {
+  margin-top: 22px;
+  border: 1px solid var(--border-strong);
+  background: var(--bg-input);
+  padding: 16px 18px;
+}
+
+.event-fired-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 14px;
+}
+
+/* Settlement + seal */
+
+.settle-card {
+  border-color: var(--border-strong);
+}
+
+.settle-head {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+  margin-bottom: 16px;
+}
+
+.seal-card {
+  display: flex;
+  align-items: center;
+  gap: 18px;
+  margin-top: 16px;
+}
+
+.seal-mark {
+  width: 44px;
+  height: auto;
+  flex-shrink: 0;
+  opacity: 0.92;
+}
+
+.seal-card p {
+  margin: 8px 0 0;
+  font-size: 13.5px;
+  line-height: 1.6;
+  color: var(--text-dim);
+}
+
+/* Empty states — the mark as a watermark, never a spinner */
+
+.empty-state {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 14px;
+  text-align: center;
+  padding: 44px 24px;
+}
+
+.empty-state p {
+  margin: 0;
+  max-width: 44ch;
+  font-size: 13.5px;
+  line-height: 1.6;
+  color: var(--text-dim);
+}
+
+.empty-mark {
+  width: 30px;
+  height: auto;
+  opacity: 0.18;
+}
+
+/* Stage-to-stage navigation */
+
+.stage-nav {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 16px;
+  margin-top: 32px;
+  padding-top: 20px;
+  border-top: 1px solid var(--border);
+}
+
+.stage-nav-link {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  text-decoration: none;
+  padding: 6px 0;
+  min-width: 0;
+}
+
+.stage-nav-link.next {
+  text-align: right;
+  align-items: flex-end;
+}
+
+.stage-nav-dir {
+  font-family: var(--mono);
+  font-size: 10px;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  color: var(--text-faint);
+  transition: color 150ms var(--ease-out);
+}
+
+.stage-nav-to {
+  font-size: 13px;
+  color: var(--text-dim);
+  transition: color 150ms var(--ease-out);
+}
+
+@media (hover: hover) and (pointer: fine) {
+  .stage-nav-link:hover .stage-nav-dir {
+    color: var(--text);
+  }
+  .stage-nav-link:hover .stage-nav-to {
+    color: var(--text);
+  }
+}
+
+/* Deployed-proof card */
+
+.proof-card {
+  margin-top: 24px;
+}
+
+.proof-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+  margin-bottom: 12px;
+}
+
+.proof-ok {
+  font-family: var(--mono);
+  font-size: 10px;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--text);
+  border: 1px solid #f0f0f0;
+  padding: 3px 8px;
+}
+
+.proof-note {
+  margin: 0 0 16px;
+  font-size: 13px;
+  line-height: 1.6;
+  color: var(--text-dim);
+  max-width: 62ch;
+}
+
+.button.ghost.small {
+  display: inline-block;
+  margin-top: 18px;
+  font-size: 11px;
+  padding: 8px 14px;
+  text-decoration: none;
+  text-align: center;
+}
+
+/* Responsive — phone first for the journey surfaces */
+
+@media (max-width: 900px) {
+  .rail-label {
+    font-size: 9px;
+    letter-spacing: 0.1em;
+  }
+}
+
+@media (max-width: 720px) {
+  .rail {
+    display: none;
+  }
+  .rail-compact {
+    display: flex;
+  }
+  .nav {
+    height: auto;
+    flex-wrap: wrap;
+    gap: 10px 16px;
+    padding: 12px 16px;
+  }
+  .nav-links {
+    order: 3;
+    width: 100%;
+    justify-content: flex-start;
+    gap: 18px;
+    padding-top: 2px;
+  }
+  main.container {
+    padding: 24px 16px 56px;
+  }
+  .grid.three {
+    grid-template-columns: 1fr;
+    gap: 14px;
+  }
+  .button-row {
+    flex-direction: column;
+    align-items: stretch;
+  }
+  .button-row .button,
+  .button-row a.button {
+    width: 100%;
+  }
+  /* Touch targets: ≥44px tall on a phone (DESIGN.md). */
+  .button {
+    padding: 13px 22px;
+  }
+  .nav-links a {
+    padding: 10px 0;
+  }
+  .stage-nav {
+    flex-direction: column-reverse;
+    align-items: stretch;
+    gap: 12px;
+  }
+  .stage-nav-link,
+  .stage-nav-link.next {
+    text-align: left;
+    align-items: flex-start;
+  }
+  .evidence-row {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 2px;
+  }
+  .evidence-row dd {
+    text-align: left;
+  }
+  .seal-card {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 14px;
+  }
+  .source-vs {
+    align-self: flex-start;
+  }
 }
 
 /* prefers-reduced-motion: keep comprehension aids, drop movement --------------------- */

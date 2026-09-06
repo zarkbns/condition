@@ -26,11 +26,12 @@ export function NetworkBadge(props: NetworkBadgeProps) {
     mode === 'network-down' || mode === 'connecting' ? 'net-badge-offline' :
     'net-badge-local';
 
-  // Monochrome semantics: white = connected/live, dim = waiting, red = down.
+  // Achromatic semantics (DESIGN.md): white = live, mid-gray = waiting,
+  // dim + dashed = down. Errors never borrow a hue here.
   const dotColor =
     mode === 'preprod' ? '#f0f0f0' :
     mode === 'wallet-needed' ? '#8a8a8a' :
-    mode === 'network-down' || mode === 'connecting' ? '#ff4d4d' :
+    mode === 'network-down' || mode === 'connecting' ? '#4d4d4d' :
     '#f0f0f0';
 
   const labelText =
@@ -61,9 +62,9 @@ export function NetworkBadge(props: NetworkBadgeProps) {
         {mode === 'network-down' && (
           <>
             <span className="net-badge-detail" style={{ display: 'inline-flex', gap: 3, alignItems: 'center' }}>
-              <span className="net-badge-dot static" style={{ background: endpoints.indexer ? '#f0f0f0' : '#ff4d4d' }} />
-              <span className="net-badge-dot static" style={{ background: endpoints.prover ? '#f0f0f0' : '#ff4d4d' }} />
-              <span className="net-badge-dot static" style={{ background: endpoints.node ? '#f0f0f0' : '#ff4d4d' }} />
+              <span className="net-badge-dot static" style={{ background: endpoints.indexer ? '#f0f0f0' : '#4d4d4d' }} />
+              <span className="net-badge-dot static" style={{ background: endpoints.prover ? '#f0f0f0' : '#4d4d4d' }} />
+              <span className="net-badge-dot static" style={{ background: endpoints.node ? '#f0f0f0' : '#4d4d4d' }} />
             </span>
             <button className="net-badge-btn" onClick={onRetry}>
               Retry

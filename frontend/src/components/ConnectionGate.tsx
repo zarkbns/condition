@@ -82,25 +82,9 @@ export function ConnectionGate({ children }: { children: ReactNode }) {
       );
 
     case 'local':
-      // Explicit dev-mode opt-in. Render the page body but make the mode
-      // unmistakable.
-      return (
-        <>
-          <div className="notice" style={{ borderColor: '#f0f0f0', color: '#f0f0f0' }}>
-            <strong>LOCAL DEV MODE</strong> — you explicitly switched to the
-            local reference runtime. Transactions here are simulated in-browser
-            and do <em>not</em> touch the Preprod chain. Switch back with{' '}
-            <button
-              className="badge-btn-inline"
-              onClick={retry}
-            >
-              Retry Preprod
-            </button>
-            .
-          </div>
-          {children}
-        </>
-      );
+      // Explicit dev-mode opt-in. The mode is labelled once, by ModeBanner,
+      // on every product page — no second banner stacked underneath it.
+      return <>{children}</>;
 
     case 'preprod':
       return <>{children}</>;

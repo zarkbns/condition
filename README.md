@@ -112,12 +112,15 @@ npx tsx scripts/demo-lifecycle.ts   # live two-layer lifecycle demo
 npm run dev        # http://localhost:3000
 ```
 
-Then in the browser:
-1. `/policy` — create + fund a policy (public)
-2. `/claim` — enroll, record a 2-source trigger, generate the proof client-side, settle
-3. `/receipt` — browse + verify public receipts
+Then in the browser — one guided journey through the six lifecycle stages, with a progress rail on every page:
 
-These pages run the protocol client-side. Without a connected wallet they operate on the LOCAL DEV reference runtime (an explicit opt-in); connecting a Midnight wallet in the browser is detected where implemented but does not yet submit transactions — see [What runs where](#what-runs-where-browser-vs-cli).
+| Stage | Page | What happens |
+|---|---|---|
+| 01 Policy · 02 Fund | `/policy` | Create the policy (terms public, immutable), fund the escrow, enroll as holder — only `H(policyId, secret)` is published |
+| 03 Verified Event · 04 Claim · 05 Private Settlement | `/claim` | Record the 2-source trigger, generate the proof client-side, settle privately (nullifier spent) |
+| 06 Proof / Receipt | `/receipt` | Browse and recompute public receipts from public data alone |
+
+These pages run the protocol client-side. A banner on every page states which runtime is driving: the **local reference** runtime (an explicit opt-in — the real state machine, digests and proofs, but nothing written on-chain), or Midnight Preprod. Connecting a Midnight wallet in the browser is detected where implemented but does not yet submit transactions — see [What runs where](#what-runs-where-browser-vs-cli).
 
 `npm run deploy` performs a real Preprod deployment (Midnight wallet-sdk facade stack: unshielded + bootstrapped dust wallets → `deployContract`), recording contract addresses and tx hashes. When Midnight endpoints are unreachable (e.g. this build environment's network), it falls back to local real-runtime verification of the same compiled contracts and records the honest blocker with evidence. Every run writes `deploy/deployments.json`; circuit identities live in `deploy/artifacts.json`. Secrets are read only from `process.env` — never committed.
 
