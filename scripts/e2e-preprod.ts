@@ -12,20 +12,28 @@
 // Stages (--stage=…):
 //   full    (default) the whole lifecycle in one process
 //   public  create + fund, then record the PUBLIC state and stop
-//   claim   adopt that recorded state, then enroll + trigger + claim + settle
+//   claim   adopt that recorded state, then enroll + trigger + claim proof,
+//           record the claim state (incl. the holder secret) and stop
+//   settle  adopt the policy AND the claim state, then settle + verify
 //
 // The split exists for memory-constrained devices (this repo's dev host has
 // 2.7GB): the wallet stack plus eight sequential proving steps in one
-// process gets Android's low-memory killer. Each stage is still a real
-// on-chain run with the same parity checks — nothing is simulated, and the
-// hand-off file carries ONLY public data (policy id, contract address,
-// terms, timestamps). The holder secret is generated inside the `claim`
-// process and never leaves it (Invariant 2).
+// process gets Android's low-memory killer — twice, always during the
+// settle proving window. Each stage is still a real on-chain run with the
+// same parity checks — nothing is simulated.
+//
+// PRIVACY NOTE (Invariant 2): the `claim` → `settle` hand-off file carries
+// the holder secret, because the settle witnesses need it and it cannot be
+// re-derived (it is generated once, locally). This is TEST-ONLY plumbing
+// for this script: the file is mode 0600, lives in the gitignored .qwen/
+// workspace, and is overwritten by every run. The product path never
+// serializes the holder secret anywhere.
 //
 // Usage:
 //   MIDNIGHT_WALLET_SEED=<hex-seed> npx tsx scripts/e2e-preprod.ts
 //   MIDNIGHT_WALLET_SEED=<hex-seed> npx tsx scripts/e2e-preprod.ts --stage=public
 //   MIDNIGHT_WALLET_SEED=<hex-seed> npx tsx scripts/e2e-preprod.ts --stage=claim
+//   MIDNIGHT_WALLET_SEED=<hex-seed> npx tsx scripts/e2e-preprod.ts --stage=settle
 //
 // Requires a reachable proof server for contract proving (the local
 // midnightntwrk/proof-server:8.1.0 — see docs/DEPLOYMENTS.md). When the
@@ -47,9 +55,9 @@ const THRESHOLD = 3500;
 const NOW = Math.floor(Date.now() / 1000);
 const EXPIRY = NOW + 30 * 86_400;
 
-type Stage = 'full' | 'public' | 'claim';
+type Stage = 'full' | 'public' | 'claim' | 'settle';
 
-/** Public hand-off between stages — never contains secret material. */
+/** Public hand-off between the public and claim stages — no secret material. */
 interface E2EState {
   insurer: string;
   terms: {
@@ -71,6 +79,27 @@ interface E2EState {
   settleAt: number;
 }
 
+/**
+ * Claim → settle hand-off. Everything except `holderSecret` is public data;
+ * the secret is test-only plumbing (see the header note) — mode 0600 local
+ * file, gitignored, consumed once by --stage=settle.
+ */
+interface E2EClaimState extends E2EState {
+  commitment: string;
+  holderSecret: string;
+  proof: {
+    statement: string;
+    proofHash: string;
+    publicInputs: {
+      policyId: string;
+      termsDigest: string;
+      nullifier: string;
+      triggerOutcome: boolean;
+      expectedPayoutCommitment: string;
+    };
+  };
+}
+
 function step(label: string): void {
   console.log(`\n── ${label} ─────────────────────────────────────────────`);
 }
@@ -78,8 +107,8 @@ function step(label: string): void {
 function parseStage(): Stage {
   const arg = process.argv.find((a) => a.startsWith('--stage='));
   const value = arg?.split('=')[1] ?? 'full';
-  if (value !== 'full' && value !== 'public' && value !== 'claim') {
-    console.error(`✗ unknown --stage=${value} (expected full | public | claim)`);
+  if (value !== 'full' && value !== 'public' && value !== 'claim' && value !== 'settle') {
+    console.error(`✗ unknown --stage=${value} (expected full | public | claim | settle)`);
     process.exit(1);
   }
   return value;
@@ -98,6 +127,46 @@ async function writeState(state: E2EState): Promise<void> {
   await mkdir(dirname(path), { recursive: true });
   await writeFile(path, JSON.stringify(state, null, 2), { mode: 0o600 });
   console.log(`  state file    ${path} (public fields only)`);
+}
+
+async function claimStatePath(): Promise<string> {
+  const { join } = await import(/* webpackIgnore: true */ 'node:path');
+  return join(await stateDir(), 'e2e-claim-state.json');
+}
+
+async function stateDir(): Promise<string> {
+  const { join, dirname } = await import(/* webpackIgnore: true */ 'node:path');
+  const { fileURLToPath } = await import(/* webpackIgnore: true */ 'node:url');
+  return join(dirname(fileURLToPath(import.meta.url)), '..', '.qwen');
+}
+
+/**
+ * Write the claim → settle hand-off. Unlike writeState this carries the
+ * holder secret (test-only plumbing — see the header note): mode 0600,
+ * gitignored .qwen/ workspace, overwritten each run.
+ */
+async function writeClaimState(state: E2EClaimState): Promise<void> {
+  const { mkdir, writeFile } = await import(/* webpackIgnore: true */ 'node:fs/promises');
+  const { dirname } = await import(/* webpackIgnore: true */ 'node:path');
+  const path = await claimStatePath();
+  await mkdir(dirname(path), { recursive: true });
+  await writeFile(path, JSON.stringify(state, null, 2), { mode: 0o600 });
+  console.log(`  claim state   ${path} (carries the holder secret — test-only, 0600)`);
+}
+
+async function readClaimState(): Promise<E2EClaimState> {
+  const { readFile } = await import(/* webpackIgnore: true */ 'node:fs/promises');
+  const path = await claimStatePath();
+  let raw: string;
+  try {
+    raw = await readFile(path, 'utf8');
+  } catch {
+    console.error(
+      `✗ no claim hand-off state at ${path}\n  Run --stage=claim first (it records the proof + enrollment).`,
+    );
+    process.exit(1);
+  }
+  return JSON.parse(raw) as E2EClaimState;
 }
 
 async function readState(): Promise<E2EState> {
@@ -181,12 +250,14 @@ async function main(): Promise<void> {
 
   // `claim` adopts the policy deployed by a previous `public` stage; the
   // rest of the lifecycle then runs against that same live contract.
+  // `settle` additionally adopts the claim state (enrollment + trigger +
+  // proof) recorded by `claim`.
   let insurer: string;
   let terms: PolicyTerms;
   let policyId: string;
   let createdAt: number;
 
-  if (stage === 'claim') {
+  if (stage === 'claim' || stage === 'settle') {
     const state = await readState();
     insurer = state.insurer;
     terms = termsFromState(state);
@@ -203,6 +274,11 @@ async function main(): Promise<void> {
     policyId = adopted.policyId;
     console.log(`  policyId      ${policyId} (replay matched the record)`);
     console.log(`  contract      ${state.contractAddress}`);
+
+    if (stage === 'settle') {
+      await runSettleStage(runtime, policyId, await readClaimState());
+      return;
+    }
     await runClaimStage(runtime, policyId, state);
     return;
   }
@@ -257,7 +333,7 @@ async function main(): Promise<void> {
   await runClaimStage(runtime, policyId, state);
 }
 
-/** enroll → trigger → claim proof → settle → public receipt verification. */
+/** enroll → trigger → claim proof. Stops here; --stage=settle finishes. */
 async function runClaimStage(
   runtime: Awaited<ReturnType<typeof createPreprodRuntime>>['runtime'],
   policyId: string,
@@ -282,21 +358,63 @@ async function runClaimStage(
   console.log(`  nullifier     ${proof.publicInputs.nullifier}`);
   console.log(`  proofHash     ${proof.proofHash}`);
 
+  step('RECORD CLAIM STATE (stop here; --stage=settle finishes the loop)');
+  await writeClaimState({
+    ...state,
+    commitment,
+    holderSecret: runtime.claimService.secretFor(policyId),
+    proof: {
+      statement: proof.statement,
+      proofHash: proof.proofHash,
+      publicInputs: {
+        policyId: proof.publicInputs.policyId,
+        termsDigest: proof.publicInputs.termsDigest,
+        nullifier: proof.publicInputs.nullifier,
+        triggerOutcome: proof.publicInputs.triggerOutcome,
+        expectedPayoutCommitment: proof.publicInputs.expectedPayoutCommitment,
+      },
+    },
+  });
+  console.log('\n✓ STAGE 2 COMPLETE — enrolled, triggered, proof generated');
+  console.log('  next: npx tsx scripts/e2e-preprod.ts --stage=settle');
+}
+
+/** settle → public receipt verification. The settle witnesses are rebuilt
+ *  from the adopted claim state (holder secret included — test-only
+ *  plumbing, see header). */
+async function runSettleStage(
+  runtime: Awaited<ReturnType<typeof createPreprodRuntime>>['runtime'],
+  policyId: string,
+  claim: E2EClaimState,
+): Promise<void> {
+  step('ADOPT CLAIM (enrollment + trigger replayed on the mirror — no txs)');
+  await runtime.adoptClaim({
+    policyId: policyId as `0x${string}`,
+    commitment: claim.commitment as `0x${string}`,
+    premium: BigInt(claim.terms.premium),
+    enrolledAt: claim.createdAt,
+    holderSecret: claim.holderSecret as `0x${string}`,
+    readings: claim.readings,
+    triggerAt: claim.triggerAt,
+  });
+  const adopted = await runtime.policyService.getPolicy(policyId);
+  console.log(`  status        ${adopted.status} (trigger ${adopted.trigger?.outcome}, observed ${adopted.trigger?.observedValue})`);
+
   step('SETTLE ON PREPROD (deploy SettlementContract + link() + settle())');
   const snapshot = await runtime.policyService.getPolicy(policyId);
   const witnessProvider = () => ({
     policyId,
-    holderSecret: runtime.claimService.secretFor(policyId),
+    holderSecret: claim.holderSecret,
     settlementAmount:
-      snapshot.trigger?.outcome && inCoverageWindow(snapshot.terms, state.claimAt)
+      snapshot.trigger?.outcome && inCoverageWindow(snapshot.terms, claim.claimAt)
         ? snapshot.terms.payoutAmount
         : 0n,
-    claimTime: state.claimAt,
+    claimTime: claim.claimAt,
     triggerEvidence:
       snapshot.trigger ?? { readings: [], outcome: false, observedValue: 0, recordedAt: 0 },
   });
   const settlement = await runtime.settlementService.settle(
-    state.settleAt, proof, policyId, witnessProvider as never,
+    claim.settleAt, claim.proof as never, policyId, witnessProvider as never,
   );
   console.log(`  receipt id    ${settlement.receipt.receiptId}`);
   console.log(`  status        ${settlement.receipt.status}`);
