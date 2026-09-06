@@ -7,7 +7,7 @@
 // Idempotent: only acts when @next/swc-wasm-nodejs is installed AND the
 // native android-arm64 package is absent. On glibc machines this is a no-op.
 
-import { existsSync, mkdirSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -47,3 +47,42 @@ writeFileSync(
   ].join('\n'),
 );
 console.log('postinstall: shimmed @next/swc-android-arm64 -> @next/swc-wasm-nodejs (wasm)');
+
+// ---------------------------------------------------------------------------
+// @midnight-ntwrk/compact-runtime ships exports["."] with "default" BEFORE
+// "types". Node's resolver tolerates any order; webpack 5's exports resolver
+// rejects it ("Default condition should be last one") — which breaks any
+// Next.js build that imports the compiled contract artifacts (they import
+// compact-runtime). Reorder the two keys in place. Idempotent.
+// ---------------------------------------------------------------------------
+const compactRuntimePkgs = [];
+const scopeDir = join(root, 'node_modules', '@midnight-ntwrk');
+if (existsSync(scopeDir)) {
+  for (const entry of readdirSync(scopeDir, { withFileTypes: true })) {
+    if (!entry.isDirectory()) continue;
+    const pkgDir = join(scopeDir, entry.name);
+    const pkgPath = join(pkgDir, 'package.json');
+    if (entry.name === 'compact-runtime' && existsSync(pkgPath)) {
+      compactRuntimePkgs.push(pkgPath);
+    }
+    const nestedScope = join(pkgDir, 'node_modules', '@midnight-ntwrk');
+    if (existsSync(nestedScope)) {
+      for (const nested of readdirSync(nestedScope, { withFileTypes: true })) {
+        if (nested.isDirectory() && nested.name === 'compact-runtime') {
+          const nestedPath = join(nestedScope, nested.name, 'package.json');
+          if (existsSync(nestedPath)) compactRuntimePkgs.push(nestedPath);
+        }
+      }
+    }
+  }
+}
+for (const pkgPath of compactRuntimePkgs) {
+  const pkg = JSON.parse(readFileSync(pkgPath, 'utf8'));
+  const dot = pkg.exports?.['.'];
+  const keys = dot && typeof dot === 'object' ? Object.keys(dot) : [];
+  if (dot && typeof dot === 'object' && 'default' in dot && 'types' in dot && keys[keys.length - 1] !== 'default') {
+    pkg.exports['.'] = { types: dot.types, default: dot.default };
+    writeFileSync(pkgPath, JSON.stringify(pkg, null, 2) + '\n');
+    console.log('postinstall: reordered compact-runtime exports (types before default) at', pkgPath.replace(root + '/', ''));
+  }
+}

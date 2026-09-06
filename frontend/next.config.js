@@ -28,6 +28,24 @@ const nextConfig = {
   reactStrictMode: true,
   // Preprod endpoints for the dual-mode runtime (see src/utils/preprodRuntime.ts).
   env: preprodEnv,
+  // /verify and /explorer decode on-chain contract state with the compiled
+  // contract artifacts (@midnight-ntwrk/compact-runtime over the
+  // onchain-runtime-v3 wasm). webpack's wasm parser cannot handle that
+  // binary, so it is emitted as an asset and instantiated with the platform
+  // WebAssembly API by frontend/src/utils/onchainRuntimeShim.js (aliased in
+  // below). The chunk loads only on those routes (dynamic import inside
+  // src/utils/publicChain.ts).
+  webpack: (config) => {
+    config.resolve.alias['@midnight-ntwrk/onchain-runtime-v3'] = require('node:path').resolve(
+      __dirname,
+      'src/utils/onchainRuntimeShim.js',
+    );
+    config.module.rules.push({
+      test: /midnight_onchain_runtime_wasm_bg\.wasm$/,
+      type: 'asset/resource',
+    });
+    return config;
+  },
   // Android/Termux (aarch64-linux-android) has no native SWC binary on npm;
   // scripts/postinstall.mjs shims @next/swc-android-arm64 to the wasm build.
   // The wasm minifier throws on the options Next passes, so fall back to
