@@ -2,6 +2,20 @@
 
 **Status:** Live on Midnight Preprod — the full lifecycle (create → fund → enroll → 2-source trigger → private claim → client-side ZK proof → settle → public receipt) executed on-chain 2026-09-05, all transactions `SUCCESS` ([evidence](docs/DEPLOYMENTS.md)). 156 tests green, live two-layer lifecycle demo (CLI), full cross-layer digest parity. Real on-chain writes run via the CLI — see [What runs where](#what-runs-where-browser-vs-cli).
 
+## Judge Quickstart
+
+Two commands and two links cover the entire claim:
+
+```bash
+npm i && npm test                    # 156 tests — incl. the adversarial privacy suite and two-layer circuit parity
+npx tsx scripts/demo-lifecycle.ts    # the full lifecycle on the real compiled Compact circuits, with live output
+```
+
+- **Live product** — [trycondition.vercel.app](https://trycondition.vercel.app): walk the policy, claim, and receipt workflow in the browser.
+- **On-chain evidence** — [docs/DEPLOYMENTS.md](docs/DEPLOYMENTS.md): contract addresses, block heights, transaction hashes, explorer links, and one-command indexer re-verification for every step of the lifecycle.
+
+**Reading the two:** the browser is Condition's interactive product showcase — the protocol running client-side against the reference runtime — while the fully real Midnight Preprod on-chain lifecycle is currently executed and verified through the CLI, so nothing the browser displays is presented as an on-chain write it did not perform.
+
 ## What is Condition?
 
 Condition is a parametric insurance protocol where policies are transparent, claims settle privately, and fairness is proven publicly without revealing claimant identity.

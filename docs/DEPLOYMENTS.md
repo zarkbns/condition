@@ -39,6 +39,12 @@ status `SETTLED` — deterministic from public data
 (`receiptIdDigest(policyId, proofHash, outcome, settled, timestamp)`), so
 anyone can recompute it and match the on-chain settle circuit's output.
 
+Browse the same two contracts on the
+[Midnight Preprod Explorer](https://preprod.midnightexplorer.com):
+[policy `00147690…d08a01`](https://preprod.midnightexplorer.com/contracts/0x00147690d83e6501e237774fbd934956253032010e3a7e3258e1c162f4d08a01)
+·
+[settlement `90f1d7ae…2a8297c`](https://preprod.midnightexplorer.com/contracts/0x90f1d7ae19bdb9c531b003d95fd35ef4c507050390ad31e4289d172d72a8297c)
+
 Re-verify any step (indexer v3; `transactions`/`block` queries — the
 `contractAction(address)` lookup can return null for recent contracts):
 
@@ -65,6 +71,11 @@ Both deploy transactions returned `SUCCESS` and were confirmed on the indexer
 via `contractAction` by contract address. Deployer wallet (unshielded):
 `mn_addr_preprod1fd5srkfs…` — seed is env-only (`MIDNIGHT_WALLET_SEED`), never
 committed.
+
+Explorer:
+[policy `cc7f513d…268fe6`](https://preprod.midnightexplorer.com/contracts/0xcc7f513d5aed49bd51b8836e000f0ab2250efc1c882a10a0bccaa21e9b268fe6)
+·
+[settlement `dd817438…d65c360`](https://preprod.midnightexplorer.com/contracts/0xdd8174380525cb46b7691f7502850ce701bc5cd5b7f29f76f20e7f8f3d65c360)
 
 ### Re-verification
 
