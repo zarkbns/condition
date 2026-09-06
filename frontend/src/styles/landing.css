@@ -1,0 +1,12 @@
+/* Landing-page Tailwind layer. Utilities only — no preflight, no base
+   resets — so the app pages' globals.css remains the single source of
+   truth for everything outside the landing page. */
+
+@tailwind utilities;
+
+/* Full-bleed shell for the landing page (replaces main.container there). */
+main.landing {
+  flex: 1;
+  width: 100%;
+  padding: 0;
+}

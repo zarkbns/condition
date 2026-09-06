@@ -1,5 +1,7 @@
 import Head from 'next/head';
+import { useRouter } from 'next/router';
 import '../src/styles/globals.css';
+import '../src/styles/landing.css';
 import type { AppProps } from 'next/app';
 import { ConditionProvider, useCondition } from '../src/components/ConditionProvider';
 import { NetworkBadge } from '../src/components/NetworkBadge';
@@ -28,13 +30,18 @@ function NavBar() {
 }
 
 export default function App({ Component, pageProps }: AppProps) {
+  const router = useRouter();
+  // The landing page carries its own full-bleed section rhythm (zkPass
+  // language: 1280px canvas, edge-to-edge bands); app pages keep the
+  // narrow reading container from globals.css.
+  const fullBleed = router.pathname === '/';
   return (
     <ConditionProvider>
       <Head>
         <link rel="icon" type="image/png" href="/brand/favicon.png" />
       </Head>
       <NavBar />
-      <main className="container">
+      <main className={fullBleed ? 'landing' : 'container'}>
         <Component {...pageProps} />
       </main>
       <footer className="footer">
