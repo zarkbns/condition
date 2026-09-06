@@ -100,6 +100,14 @@ export function DeployedProof() {
           <dd title={PREPROD_DEPLOYMENT.receiptId}>{short(PREPROD_DEPLOYMENT.receiptId)}</dd>
         </div>
       </dl>
+      <div className="button-row">
+        <a className="button ghost small" href={`/verify?receipt=${PREPROD_DEPLOYMENT.receiptId}`}>
+          Verify it yourself →
+        </a>
+        <a className="button ghost small" href="/explorer">
+          Explorer →
+        </a>
+      </div>
       <a className="button ghost small" href="https://github.com/zarkbns/condition/blob/main/docs/DEPLOYMENTS.md">
         Full evidence &amp; re-verification queries
       </a>

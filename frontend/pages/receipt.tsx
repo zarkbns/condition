@@ -62,7 +62,7 @@ export default function ReceiptPage() {
       </div>
 
       <div className="card stage-card">
-        <label htmlFor="receipt-id">Verify a receipt id</label>
+        <label htmlFor="receipt-id">Recompute a receipt id from the session ledger</label>
         <input
           id="receipt-id"
           placeholder="0x…"
@@ -99,7 +99,7 @@ export default function ReceiptPage() {
             <thead>
               <tr>
                 <th>Receipt</th><th>Policy</th><th>Proof hash</th>
-                <th>Trigger</th><th>Status</th><th>Time</th>
+                <th>Trigger</th><th>Status</th><th>Time</th><th>Independent check</th>
               </tr>
             </thead>
             <tbody>
@@ -111,6 +111,11 @@ export default function ReceiptPage() {
                   <td>{r.triggerOutcome ? 'FIRED' : '—'}</td>
                   <td><span className={`status ${r.status}`}>{r.status}</span></td>
                   <td className="mono-row">{new Date(r.timestamp * 1000).toISOString().slice(0, 16)}</td>
+                  <td>
+                    <a className="explorer-link" href={`/verify?receipt=${r.receiptId}`} title="Re-verify this receipt in a clean browser context — no session, no wallet">
+                      verify ↗
+                    </a>
+                  </td>
                 </tr>
               ))}
             </tbody>
@@ -131,6 +136,18 @@ export default function ReceiptPage() {
           </div>
         </div>
       )}
+
+      <div className="privacy-note" style={{ marginTop: 16 }}>
+        <span className="lock">⚖</span>
+        <span>
+          The check above recomputes against this session's ledger. The{' '}
+          <a className="explorer-link" href="/verify">public verifier</a>{' '}
+          does the same job with zero session state — straight from the
+          Midnight Preprod indexer — and the{' '}
+          <a className="explorer-link" href="/explorer">explorer</a> shows
+          every receipt's public surface.
+        </span>
+      </div>
 
       {settleTx.length > 0 && (
         <div className="card" style={{ marginTop: 16, padding: 0, overflowX: 'auto' }}>

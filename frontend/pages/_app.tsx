@@ -23,6 +23,8 @@ function NavBar() {
         <a href="/policy">create policy</a>
         <a href="/claim">claim</a>
         <a href="/receipt">receipts</a>
+        <a href="/verify">verify</a>
+        <a href="/explorer">explorer</a>
       </div>
       <NetworkBadge
         status={status}

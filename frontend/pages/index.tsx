@@ -284,6 +284,18 @@ export default function Home() {
               Create a policy
             </a>
             <a
+              href="/verify"
+              className="tw-rounded tw-border tw-border-line-strong tw-px-6 tw-py-3 tw-text-sm tw-font-medium tw-tracking-wide tw-text-ink hover:tw-border-white/50"
+            >
+              Verify a receipt
+            </a>
+            <a
+              href="/explorer"
+              className="tw-rounded tw-border tw-border-line-strong tw-px-6 tw-py-3 tw-text-sm tw-font-medium tw-tracking-wide tw-text-ink hover:tw-border-white/50"
+            >
+              Explore the chain
+            </a>
+            <a
               href="/receipt"
               className="tw-rounded tw-border tw-border-line-strong tw-px-6 tw-py-3 tw-text-sm tw-font-medium tw-tracking-wide tw-text-ink hover:tw-border-white/50"
             >
