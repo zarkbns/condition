@@ -112,7 +112,7 @@ export default function PolicyPage() {
           </div>
         </div>
         <div className="button-row">
-          <button className="button primary" onClick={createPolicy} disabled={creating}>
+          <button className="button primary" onClick={createPolicy} disabled={creating} aria-busy={creating || undefined}>
             {creating ? 'Creating…' : 'Create policy'}
           </button>
         </div>

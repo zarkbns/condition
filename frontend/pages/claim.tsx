@@ -159,7 +159,7 @@ export default function ClaimPage() {
           {enrollable.map((p) => (
             <div key={p.policyId} className="actions-cell" style={{ marginBottom: 8 }}>
               <code>{p.policyId.slice(0, 20)}…</code>{' '}
-              <button className="button" onClick={() => enroll(p.policyId)} disabled={busy !== null}>
+              <button className="button" onClick={() => enroll(p.policyId)} disabled={busy !== null} aria-busy={busy === 'enroll' || undefined}>
                 {busy === 'enroll' ? 'Enrolling…' : 'Enroll'}
               </button>
             </div>
@@ -179,10 +179,10 @@ export default function ClaimPage() {
               <span className="mono-row">
                 escrow {(Number(p.fundedAmount) / 1e9).toFixed(2)} tDUST
               </span>{' '}
-              <button className="button" onClick={() => fund(p.policyId)} disabled={busy !== null}>
+              <button className="button" onClick={() => fund(p.policyId)} disabled={busy !== null} aria-busy={busy === 'fund' || undefined}>
                 {busy === 'fund' ? 'Funding…' : 'Fund to target'}
               </button>
-              <button className="button" onClick={() => recordTrigger(p.policyId)} disabled={busy !== null}>
+              <button className="button" onClick={() => recordTrigger(p.policyId)} disabled={busy !== null} aria-busy={busy === 'record_trigger' || undefined}>
                 {busy === 'record_trigger' ? 'Recording…' : 'Record 2-source trigger'}
               </button>
             </div>
@@ -207,10 +207,11 @@ export default function ClaimPage() {
             className="button primary"
             onClick={submitClaim}
             disabled={!selected || !claimable.some((p) => p.policyId === selected) || busy !== null}
+            aria-busy={busy === 'submit_claim' || undefined}
           >
             {busy === 'submit_claim' ? 'Proving…' : 'Generate proof (client-side)'}
           </button>
-          <button className="button" onClick={settle} disabled={!proof || busy !== null}>
+          <button className="button" onClick={settle} disabled={!proof || busy !== null} aria-busy={busy === 'settle' || undefined}>
             {busy === 'settle' ? 'Settling…' : 'Settle on Preprod'}
           </button>
         </div>

@@ -329,6 +329,31 @@ select {
   cursor: not-allowed;
 }
 
+/* The running control must not look inert: keep it at full opacity and
+   mark it busy with an indeterminate sweep along its bottom edge.
+   aria-busy also announces the state to assistive tech. */
+.button[aria-busy='true'] {
+  position: relative;
+  overflow: hidden;
+  opacity: 1;
+}
+
+.button[aria-busy='true']::after {
+  content: '';
+  position: absolute;
+  left: 0;
+  bottom: 0;
+  width: 40%;
+  height: 2px;
+  background: linear-gradient(90deg, transparent, currentColor, transparent);
+  animation: busy-sweep 1.2s linear infinite;
+}
+
+@keyframes busy-sweep {
+  from { transform: translateX(-100%); }
+  to   { transform: translateX(250%); }
+}
+
 .button-row {
   display: flex;
   gap: 10px;
@@ -588,6 +613,11 @@ code {
   50% { opacity: 0.35; }
 }
 
+@keyframes busy-breath {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.35; }
+}
+
 .net-badge-label {
   font-weight: 600;
   letter-spacing: 0.18em;
@@ -666,6 +696,11 @@ code {
   }
   .button:active:not(:disabled) {
     transform: none;
+  }
+  .button[aria-busy='true']::after {
+    width: 100%;
+    transform: none;
+    animation: busy-breath 2s linear infinite;
   }
   * {
     transition-duration: 0.01ms !important;
