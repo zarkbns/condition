@@ -1,6 +1,6 @@
 # Condition – Privacy-Preserving Parametric Insurance on Midnight
 
-**Status:** Deployed on Midnight Preprod (policy + settlement contracts live, both txs `SUCCESS`). 156 tests green, live two-layer lifecycle demo (CLI), full cross-layer digest parity. Real on-chain writes run via the CLI — see [What runs where](#what-runs-where-browser-vs-cli).
+**Status:** Live on Midnight Preprod — the full lifecycle (create → fund → enroll → 2-source trigger → private claim → client-side ZK proof → settle → public receipt) executed on-chain 2026-09-05, all transactions `SUCCESS` ([evidence](docs/DEPLOYMENTS.md)). 156 tests green, live two-layer lifecycle demo (CLI), full cross-layer digest parity. Real on-chain writes run via the CLI — see [What runs where](#what-runs-where-browser-vs-cli).
 
 ## What is Condition?
 
