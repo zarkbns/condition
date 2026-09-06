@@ -1321,3 +1321,92 @@ code {
     transition-duration: 0.01ms !important;
   }
 }
+
+/* Explorer — blockchain-explorer surfaces (network bar, search, registry) */
+
+.explorer-status {
+  display: flex;
+  align-items: baseline;
+  gap: 14px;
+  flex-wrap: wrap;
+  margin-bottom: 16px;
+}
+
+.explorer-status-grid {
+  display: flex;
+  gap: 10px 28px;
+  flex-wrap: wrap;
+  margin: 4px 0 0;
+  width: 100%;
+}
+
+.explorer-status-grid > div {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.explorer-status-grid dt {
+  font-family: var(--mono);
+  font-size: 10px;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  color: var(--text-faint);
+}
+
+.explorer-status-grid dd {
+  margin: 0;
+  font-size: 14px;
+}
+
+.explorer-search-input {
+  flex: 1 1 320px;
+}
+
+.explorer-card-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+  padding: 18px 14px 10px;
+}
+
+.explorer-link {
+  color: var(--text);
+  text-decoration: none;
+  border-bottom: 1px solid var(--border-strong);
+}
+
+.explorer-link:hover {
+  border-bottom-color: #f0f0f0;
+}
+
+.explorer-deployment {
+  font-family: var(--mono);
+  font-size: 11px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--text-dim);
+  border-right: 1px solid var(--border);
+}
+
+.explorer-sub {
+  font-size: 11px;
+  font-weight: 500;
+  letter-spacing: 0.2em;
+  text-transform: uppercase;
+  color: var(--text-dim);
+  margin: 24px 0 10px;
+}
+
+.redacted {
+  font-family: var(--mono);
+  letter-spacing: 0.14em;
+}
+
+.redacted-note {
+  color: var(--text-faint);
+  font-size: 11px;
+  font-family: var(--mono);
+}
