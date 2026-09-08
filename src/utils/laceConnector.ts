@@ -24,6 +24,7 @@
 //     are compiler outputs of the public circuits — no witness data.
 
 import type { LiveStack } from './preprodStack.js';
+import { loadManagedContractModule } from './managedContracts.js';
 import type { InitialAPI, ConnectedAPI } from '@midnight-ntwrk/dapp-connector-api';
 
 /** One wallet the page can connect to (window.midnight.{id}). */
@@ -381,12 +382,9 @@ export async function connectBrowserStack(
     ...real,
   });
 
-  /** Load the compiled contract module (same pattern as publicChain.ts). */
+  /** Load the committed compiled contract module (see managedContracts.ts). */
   const loadCompiled = async (name: 'policy' | 'settlement') => {
-    const mod = (await import(`../../contracts/managed/${name}/contract/index.js`)) as unknown as Record<
-      string,
-      unknown
-    >;
+    const mod = (await loadManagedContractModule(name)) as unknown as Record<string, unknown>;
     return mod['Contract'] as Parameters<typeof CompiledContract.make>[1];
   };
 
@@ -512,9 +510,9 @@ export async function connectBrowserStack(
   };
 
   const readLedger: LiveStack['readLedger'] = async (name, addr) => {
-    const managedContract = (await import(
-      `../../contracts/managed/${name}/contract/index.js`
-    )) as unknown as { ledger: (state: unknown) => Record<string, unknown> };
+    const managedContract = (await loadManagedContractModule(name)) as unknown as {
+      ledger: (state: unknown) => Record<string, unknown>;
+    };
     const states = (await getPublicStates(publicDataProvider as never, asContractAddress(addr))) as {
       contractState: { data: unknown };
     };

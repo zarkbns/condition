@@ -1,12 +1,14 @@
 // Two-layer execution parity (BUILD_SPEC.md §9, §13 hooks).
 //
 // The strongest evidence Condition has: the REAL compiled Compact circuits
-// (contracts/managed/, produced by compactc 0.30.0) executing on the REAL
-// Midnight runtime (@midnight-ntwrk/compact-runtime) produce byte-identical
-// digests to the TS reference runtime at every stage of the lifecycle.
+// (compactc 0.30.0 output) executing on the REAL Midnight runtime
+// (@midnight-ntwrk/compact-runtime) produce byte-identical digests to the TS
+// reference runtime at every stage of the lifecycle.
 //
-// Skipped automatically (not failed) when the compiled contracts or the
-// runtime package are absent — e.g. CI before `npm run build:contracts`.
+// The compiled modules resolve through src/utils/managedContracts.ts: the
+// committed contracts/managed-compact copies ship with every checkout, so
+// this suite RUNS on a fresh clone / CI without a local compactc compile.
+// Skipped automatically (not failed) only if neither source exists.
 //
 // Privacy note: this suite passes the holder secret ONLY through local
 // witness providers, exactly as the browser client would. Nothing is logged
@@ -18,11 +20,9 @@ import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const root = join(dirname(fileURLToPath(import.meta.url)), '..');
-const managedDir = join(root, 'contracts', 'managed');
+const committedDir = join(root, 'contracts', 'managed-compact');
 
-const available =
-  existsSync(join(managedDir, 'policy', 'contract', 'index.js')) &&
-  existsSync(join(managedDir, 'settlement', 'contract', 'index.js'));
+const available = existsSync(join(committedDir, 'policy', 'contract', 'index.js'));
 
 const maybe = available ? describe : describe.skip;
 
@@ -51,16 +51,15 @@ maybe('two-layer execution parity (real compact-runtime)', () => {
       dummyContractAddress: () => unknown;
       CostModel: { initialCostModel: () => unknown };
     };
-    // Interop-tolerant loading via absolute file URLs: vitest's transform
-    // graph can re-wrap the ESM namespace depending on import order across
-    // suites; a direct file-URL load sidesteps the resolver ambiguity.
-    const load = async (name: string): Promise<Record<string, unknown>> => {
-      const url = new URL(`../contracts/managed/${name}/contract/index.js`, import.meta.url);
-      const mod = (await import(url.href)) as Record<string, unknown> & { default?: unknown };
-      return ((mod.default as Record<string, unknown> | undefined) ?? mod) as Record<string, unknown>;
-    };
-    const policyMod = await load('policy');
-    const settlementMod = await load('settlement');
+    // Loaded through the same loader the public surfaces and the browser
+    // wallet path use (committed managed-compact modules) — keeps this suite
+    // pinned to exactly what production executes.
+    const { loadManagedContractModule } = await import('../src/utils/managedContracts.js');
+    const policyMod = (await loadManagedContractModule('policy')) as unknown as Record<string, unknown>;
+    const settlementMod = (await loadManagedContractModule('settlement')) as unknown as Record<
+      string,
+      unknown
+    >;
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const Policy = policyMod['Contract'] as new (w: any) => any;
     const policyLedger = policyMod['ledger'] as (s: any) => any;

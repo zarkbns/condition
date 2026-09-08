@@ -5,9 +5,9 @@
 // on TWO layers simultaneously and asserts digest parity at every step:
 //
 //   1. TS reference runtime (src/) — the executable specification.
-//   2. REAL compiled Compact contracts (contracts/managed/) executing on the
-//      REAL Midnight runtime (@midnight-ntwrk/compact-runtime) — the same
-//      code that deploys to Midnight testnet.
+//   2. REAL compiled Compact contracts (contracts/managed-compact/) executing
+//      on the REAL Midnight runtime (@midnight-ntwrk/compact-runtime) — the
+//      same code that deploys to Midnight testnet.
 //
 // Every digest the public ledger sees (policyId, termsDigest, enrollment
 // commitment, nullifier, statement, witness digest, proof hash, receipt id)
@@ -22,17 +22,10 @@
 
 import * as rt from '@midnight-ntwrk/compact-runtime';
 import {
-  Contract as PolicyContract,
-  ledger as policyLedger,
-  ComparisonOp as COp,
-  PolicyStatus as CStatus,
-  TriggerType as CTriggerType,
-} from '../contracts/managed/policy/contract/index.js';
-import {
-  Contract as SettlementContract,
-  ledger as settlementLedger,
-} from '../contracts/managed/settlement/contract/index.js';
-import { pureCircuits as proofsPure } from '../contracts/managed/proofs/contract/index.js';
+  loadManagedContractModule,
+  type PolicyModule,
+  type SettlementModule,
+} from '../src/utils/managedContracts.js';
 
 import { createRuntime } from '../src/utils/midnight.js';
 import {
@@ -49,6 +42,25 @@ import {
   type ClaimProof,
   type Dust,
 } from '../src/types/index.js';
+
+// Compiled contract modules resolve through the committed
+// contracts/managed-compact copies (src/utils/managedContracts.ts) — the
+// exact modules the public surfaces and the browser wallet path load, kept
+// in sync with a local compile by build:zk-artifacts. contracts/managed is
+// never required here.
+type PolicyContractT = InstanceType<PolicyModule['Contract']>;
+type SettlementContractT = InstanceType<SettlementModule['Contract']>;
+
+const {
+  Contract: PolicyContract,
+  ledger: policyLedger,
+  ComparisonOp: COp,
+  PolicyStatus: CStatus,
+  TriggerType: CTriggerType,
+} = await loadManagedContractModule('policy');
+const { Contract: SettlementContract, ledger: settlementLedger } =
+  await loadManagedContractModule('settlement');
+const { pureCircuits: proofsPure } = await loadManagedContractModule('proofs');
 
 const JSON_OUT = process.argv.includes('--json');
 const log = JSON_OUT ? () => {} : console.log.bind(console);
@@ -107,8 +119,8 @@ function canonicalReadings(readings: Reading[]): [Reading, Reading] {
 
 // The compiled Policy contract object is stateless (circuits run against a
 // context); keep one wired to the live claimant witness provider.
-let thePolicyContract: PolicyContract | null = null;
-function policyContract(): PolicyContract {
+let thePolicyContract: PolicyContractT | null = null;
+function policyContract(): PolicyContractT {
   thePolicyContract ??= new PolicyContract({
     holder_secret: (c) => [c.privateState, hexToBytes(tsSecret)],
   });
@@ -116,7 +128,9 @@ function policyContract(): PolicyContract {
 }
 
 /** Fresh circuit context for a compiled contract's initial state. */
-function freshContext(contract: PolicyContract | SettlementContract): rt.CircuitContext<unknown> {
+function freshContext(
+  contract: PolicyContractT | SettlementContractT,
+): rt.CircuitContext<unknown> {
   const init = contract.initialState(
     rt.createConstructorContext({}, '0'.repeat(64)) as never,
   );

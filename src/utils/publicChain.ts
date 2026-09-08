@@ -8,7 +8,8 @@
 // client, and every value it surfaces is fetched fresh from the chain.
 //
 // Contract public state is decoded with the SAME compiled contract artifacts
-// the on-chain calls use (contracts/managed/*/contract/index.js over
+// the on-chain calls use (contracts/managed-compact/*/contract/index.js —
+// the committed compiler output; see src/utils/managedContracts.ts — over
 // @midnight-ntwrk/compact-runtime + onchain-runtime wasm) — the authoritative
 // onchain-runtime decoder, not a hand-written parser of the state blob.
 // Dynamic import keeps the wasm chunk out of every other route.
@@ -47,6 +48,7 @@
 
 import { receiptIdDigest, termsDigestOf, bytesToHex } from '../core/hashing.js';
 import { TriggerType, ComparisonOp } from '../types/index.js';
+import { loadManagedLedgerDecoder, type LedgerDecoder } from './managedContracts.js';
 import type { Bytes32, PolicyTerms } from '../types/index.js';
 
 // ---------------------------------------------------------------------------
@@ -380,9 +382,6 @@ function asEnumInt(v: unknown, field: string): number {
   return v;
 }
 
-/** Dynamically imported decoder module for one managed contract. */
-type LedgerDecoder = (state: unknown) => Record<string, unknown>;
-
 /**
  * Make sure the wasm runtime is initialized before the first decode.
  * Node: the package's own entry initializes synchronously (no hook).
@@ -398,11 +397,13 @@ async function ensureChainRuntime(): Promise<void> {
   }
 }
 
+/**
+ * The committed compiled contract module's ledger decoder (see
+ * src/utils/managedContracts.ts) — always resolvable, so no build (fresh
+ * clone or Vercel) ever depends on a locally compiled contracts/managed.
+ */
 async function loadDecoder(name: 'policy' | 'settlement'): Promise<LedgerDecoder> {
-  const mod = (await import(
-    /* webpackIgnore: false */ `../../contracts/managed/${name}/contract/index.js`
-  )) as unknown as { ledger: LedgerDecoder };
-  return mod.ledger;
+  return loadManagedLedgerDecoder(name);
 }
 
 /**
