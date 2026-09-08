@@ -9,7 +9,7 @@ import type { ReactNode } from 'react';
 import { useCondition } from './ConditionProvider';
 
 export function ConnectionGate({ children }: { children: ReactNode }) {
-  const { status, connectWallet, retry, switchToLocal } = useCondition();
+  const { status, connectWallet, retry, switchToLocal, discoveredWallets } = useCondition();
 
   switch (status.mode) {
     case 'connecting':
@@ -28,12 +28,22 @@ export function ConnectionGate({ children }: { children: ReactNode }) {
           <div className="notice error">
             <strong>Preprod is reachable, but no wallet is connected.</strong>
             <p style={{ marginTop: 8 }}>
-              Condition talks to the real Midnight testnet contracts. You need a
-              Lace wallet extension in this browser, or{' '}
-              <code>MIDNIGHT_WALLET_SEED</code> set for the CLI path, to submit
-              transactions. Nothing here runs a local simulation silently.
+              Condition talks to the real Midnight Preprod contracts. Connect a
+              DApp Connector wallet (Lace) to transact: the wallet signs and
+              pays fees, and generates the ZK proofs itself — no seed, no
+              proof server, nothing of yours touches our infrastructure.{' '}
+              {discoveredWallets.length > 0
+                ? `Detected: ${discoveredWallets.map((w) => w.name).join(', ')}.`
+                : 'No wallet injected — install the Lace Midnight extension, then retry.'}{' '}
+              The CLI path (<code>MIDNIGHT_WALLET_SEED</code>) also still works
+              locally. Nothing here runs a simulation silently.
             </p>
           </div>
+          {status.walletError && (
+            <div className="notice error" role="alert">
+              <span className="stamp">[ error ]</span> {status.walletError}
+            </div>
+          )}
           <div className="button-row">
             <button className="button primary" onClick={connectWallet}>
               Connect Wallet

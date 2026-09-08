@@ -40,8 +40,35 @@ const nextConfig = {
       __dirname,
       'src/utils/onchainRuntimeShim.js',
     );
+    // isomorphic-ws' browser build has no named `WebSocket` export, which is
+    // the binding the indexer provider uses as its subscription transport.
+    config.resolve.alias['isomorphic-ws'] = require('node:path').resolve(
+      __dirname,
+      'src/utils/browserWebSocket.js',
+    );
+    // The DApp Connector stack needs ledger-v8 in the browser (transaction
+    // serialize/deserialize, cost model). Its browser entry is wasm-bindgen's
+    // bundler target — `import * as wasm from './x.wasm'` — and webpack's wasm
+    // parser rejects that binary, so the package is routed through the same
+    // asset + platform-WebAssembly treatment as the onchain runtime above.
+    // The generated snippets resolve their self-reference (`#self`, which the
+    // package maps to its browser entry) to the generated bg module, which is
+    // what they actually read; onchain-runtime-v3 declares `#self` too but no
+    // file imports it, so this stays ledger-only in practice.
+    config.resolve.alias['@midnight-ntwrk/ledger-v8'] = require('node:path').resolve(
+      __dirname,
+      'src/utils/ledgerWasmShim.js',
+    );
+    config.resolve.alias['#self'] = require('node:path').resolve(
+      __dirname,
+      '../node_modules/@midnight-ntwrk/ledger-v8/midnight_ledger_wasm_bg.js',
+    );
     config.module.rules.push({
       test: /midnight_onchain_runtime_wasm_bg\.wasm$/,
+      type: 'asset/resource',
+    });
+    config.module.rules.push({
+      test: /midnight_ledger_wasm_bg\.wasm$/,
       type: 'asset/resource',
     });
     return config;

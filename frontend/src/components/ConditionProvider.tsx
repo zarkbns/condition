@@ -29,6 +29,7 @@ import {
 } from 'react';
 import { createLocalAsyncRuntime } from '../../../src/utils/localAsyncRuntime';
 import { preprodConfigFromEnv } from '../../../src/utils/preprodRuntime';
+import type { DiscoveredWallet } from '../../../src/utils/laceConnector';
 import type { AsyncConditionRuntime, TxRecord } from '../../../src/utils/asyncRuntime';
 import type { PreprodStatus, NetworkMode } from '../../../src/utils/preprodRuntime';
 import { randomAddress } from '../../../src/core/hashing';
@@ -41,6 +42,8 @@ interface ConditionContextValue {
   status: PreprodStatus;
   /** True when a wallet is connected (Preprod ready to transact). */
   connected: boolean;
+  /** Wallets injected under window.midnight (DApp Connector discovery). */
+  discoveredWallets: DiscoveredWallet[];
   /** Session identity (dev account id). */
   insurer: string;
   policies: Policy[];
@@ -79,6 +82,7 @@ export function ConditionProvider({ children }: { children: ReactNode }) {
   const [runtime, setRuntime] = useState<AsyncConditionRuntime | null>(null);
   const [status, setStatus] = useState<PreprodStatus>(initialStatus);
   const [txHistory, setTxHistory] = useState<TxRecord[]>([]);
+  const [discoveredWallets, setDiscoveredWallets] = useState<DiscoveredWallet[]>([]);
 
   const insurer = useMemo(() => randomAddress(), []);
   const [policies, setPolicies] = useState<Policy[]>([]);
@@ -102,16 +106,40 @@ export function ConditionProvider({ children }: { children: ReactNode }) {
   }, [doRefresh]);
 
   // Build the Preprod runtime: probe endpoints, connect wallet, wire services.
+  // Page load is NON-interactive: DApp Connector wallets are discovered but
+  // never silently enabled — the enable prompt requires a user gesture.
   const connect = useCallback(async () => {
     setStatus((s) => ({ ...s, mode: 'connecting', label: 'Connecting to Preprod…' }));
     const config = preprodConfigFromEnv(
       typeof process !== 'undefined' ? process.env : {},
     );
     const { createPreprodRuntime } = await import('../../../src/utils/preprodRuntime');
-    const { runtime: preprod, status: preprodStatus } = await createPreprodRuntime(config);
+    const { runtime: preprod, status: preprodStatus } = await createPreprodRuntime(config, {
+      interactiveWallet: false,
+    });
     runtimeRef.current = preprod;
     setRuntime(preprod);
     setStatus(preprodStatus);
+    setDiscoveredWallets(preprod.onChainClient.walletsDiscovered);
+    await doRefresh();
+  }, [doRefresh]);
+
+  // The Connect Wallet button — a USER GESTURE. This is the only path that
+  // may trigger the DApp Connector's enable prompt and build the browser
+  // live stack (wallet-delegated proving).
+  const connectWallet = useCallback(async () => {
+    setStatus((s) => ({ ...s, mode: 'connecting', label: 'Connecting to Preprod…' }));
+    const config = preprodConfigFromEnv(
+      typeof process !== 'undefined' ? process.env : {},
+    );
+    const { createPreprodRuntime } = await import('../../../src/utils/preprodRuntime');
+    const { runtime: preprod, status: preprodStatus } = await createPreprodRuntime(config, {
+      interactiveWallet: true,
+    });
+    runtimeRef.current = preprod;
+    setRuntime(preprod);
+    setStatus(preprodStatus);
+    setDiscoveredWallets(preprod.onChainClient.walletsDiscovered);
     await doRefresh();
   }, [doRefresh]);
 
@@ -157,16 +185,17 @@ export function ConditionProvider({ children }: { children: ReactNode }) {
       runtime,
       status,
       connected,
+      discoveredWallets,
       insurer,
       policies,
       receipts,
       txHistory,
       refresh,
-      connectWallet: connect,
+      connectWallet,
       retry,
       switchToLocal,
     }),
-    [runtime, status, connected, insurer, policies, receipts, txHistory, refresh, connect, retry, switchToLocal],
+    [runtime, status, connected, discoveredWallets, insurer, policies, receipts, txHistory, refresh, connectWallet, retry, switchToLocal],
   );
 
   return <ConditionContext.Provider value={value}>{children}</ConditionContext.Provider>;

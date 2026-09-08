@@ -29,11 +29,11 @@
 //   NEXT_PUBLIC_MIDNIGHT_NETWORK  — Display name ("Preprod")
 //
 // Wallet:
-//   Browser (Lace extension): provides walletProvider + midnightProvider via
-//     window.midnight.
-//   CLI (seed-based): WalletBuilder.build() from @midnight-ntwrk/wallet,
-//     structurally compatible with WalletProvider + MidnightProvider (same
-//     pattern as deploy/deploy.ts).
+//   Browser (Lace DApp Connector, connector API v4): laceConnector.ts builds
+//     the browser LiveStack — wallet-delegated proving (getProvingProvider),
+//     connector balancing/signing/submission. Needs a user gesture; page
+//     load only DISCOVERS wallets (connectWallet(interactive)).
+//   CLI (seed-based): the facade live stack in preprodStack.ts (unchanged).
 
 import { createLocalAsyncRuntime } from './localAsyncRuntime.js';
 import {
@@ -50,6 +50,8 @@ import { PrivateLedger } from '../core/privateLedger.js';
 // enter the browser bundle — the value import is a dynamic (webpackIgnore'd)
 // import inside connectWallet, Node only.
 import type { LiveStack } from './preprodStack.js';
+// Type-only: the connector's Initial API shape for the discovered-wallet list.
+import type { DiscoveredWallet } from './laceConnector.js';
 import type {
   AsyncConditionRuntime,
   AsyncPolicyService,
@@ -89,6 +91,12 @@ export interface PreprodStatus {
   balance: bigint | null;
   /** Error detail (wallet missing / network down). */
   error?: string;
+  /**
+   * Precise reason the last *interactive* wallet connection failed (DApp
+   * Connector: refused, wrong connector generation, missing proving). Shown
+   * verbatim so "fail loud" reaches the user, not just the console.
+   */
+  walletError?: string;
   /** Indexer / prover / node reachability checks. */
   endpoints: {
     indexer: boolean;
@@ -147,6 +155,8 @@ export interface PreprodConfig {
   prover: string;
   node: string;
   networkLabel: string;
+  /** Base URL serving contracts/{policy,settlement}/{keys,zkir} for the browser proving path. */
+  zkArtifactsBase?: string;
 }
 
 export function preprodConfigFromEnv(
@@ -158,6 +168,7 @@ export function preprodConfigFromEnv(
     prover: env['NEXT_PREPROD_PROVER'] ?? PREPROD_ENDPOINTS.prover,
     node: env['NEXT_PREPROD_NODE'] ?? PREPROD_ENDPOINTS.node,
     networkLabel: env['NEXT_PUBLIC_MIDNIGHT_NETWORK'] ?? 'Preprod',
+    zkArtifactsBase: env['NEXT_PUBLIC_ZK_ARTIFACTS_BASE'],
   };
 }
 
@@ -245,8 +256,16 @@ export class PreprodOnChainClient {
   private walletConnected = false;
   private walletAddress = '';
   private walletBalance: bigint | null = null;
-  /** Live facade stack (Node only) — built lazily by connectWallet(). */
+  /** Live stack — connector-backed in the browser, facade-backed in Node. */
   private stack: LiveStack | null = null;
+  /** Which kind of live stack is attached (UI honesty). */
+  private stackKind: 'connector' | 'facade' | null = null;
+  /** Wallets injected under window.midnight (browser page load). */
+  walletsDiscovered: DiscoveredWallet[] = [];
+  /** Precise reason the last interactive connect failed (UI surfacing). */
+  lastError: string | null = null;
+  /** Optional explicit wallet id for connectBrowserStack (UI wallet picker). */
+  preferredWalletId: string | undefined;
 
   /** Map of policyId → contract address for deployed policy instances. */
   readonly policyContracts = new Map<string, string>();
@@ -260,26 +279,50 @@ export class PreprodOnChainClient {
   }
 
   /**
-   * Try to connect a wallet. Returns true if a wallet (Lace extension in
-   * browser, or seed-based in Node) is available.
+   * Try to connect a wallet.
+   *
+   * Interactive (default): the DApp Connector path — the browser stack is
+   * built from the connected wallet (wallet-delegated proving; no seed, no
+   * Condition-hosted prover). Connection prompts MUST come from a user
+   * gesture, so page load calls this NON-interactively and only discovers.
+   *
+   * Non-interactive (page load): discovery only. Resolves true iff wallets
+   * are injected; `walletsDiscovered` carries them for the Connect button.
+   *
+   * Node/CLI: seed-based facade stack (preprodStack.ts — unchanged).
    */
-  async connectWallet(): Promise<boolean> {
-    // Browser: Lace wallet extension
-    if (typeof window !== 'undefined' && (window as unknown as Record<string, unknown>)['midnight']) {
-      try {
-        const midnight = (window as unknown as Record<string, unknown>)['midnight'] as {
-          enable: () => Promise<unknown>;
-          getAddress: () => Promise<string>;
-          getBalance: () => Promise<bigint>;
-        };
-        await midnight.enable();
-        this.walletAddress = await midnight.getAddress();
-        this.walletBalance = await midnight.getBalance();
-        this.walletConnected = true;
-        return true;
-      } catch {
-        return false;
+  async connectWallet(interactive = true): Promise<boolean> {
+    // Browser: Midnight DApp Connector (window.midnight.{walletId})
+    if (typeof window !== 'undefined') {
+      if (interactive) {
+        if (this.stack) return true;
+        const { connectBrowserStack, ConnectorError } = await import('./laceConnector.js');
+        try {
+          const stack = await connectBrowserStack(
+            {
+              networkId: 'preprod',
+              indexerHttp: this.config.indexerHttp,
+              indexerWs: this.config.indexerWs,
+              zkArtifactsBase: this.config.zkArtifactsBase,
+            },
+            this.preferredWalletId,
+          );
+          this.stack = stack;
+          this.walletAddress = stack.address;
+          this.walletBalance = stack.dustBalance;
+          this.walletConnected = true;
+          this.stackKind = 'connector';
+          return true;
+        } catch (err) {
+          // Surfaced verbatim to the UI (the code names the missing capability);
+          // a refused probe never degrades into a simulated connection.
+          this.lastError = err instanceof ConnectorError ? err.message : String(err);
+          return false;
+        }
       }
+      const { discoverWallets } = await import('./laceConnector.js');
+      this.walletsDiscovered = discoverWallets();
+      return this.walletsDiscovered.length > 0;
     }
 
     // Node/CLI: seed-based wallet via the facade stack (the same wiring as
@@ -298,7 +341,7 @@ export class PreprodOnChainClient {
       // webpackIgnore: preprodStack pulls Node-only packages (node:fs, ws,
       // zswap wasm). webpack would statically bundle this dynamic import
       // into the BROWSER chunk and fail — the browser wallet path is the
-      // Lace extension above, never this branch. The ignore comment leaves
+      // connector stack above, never this branch. The ignore comment leaves
       // a native dynamic import that only resolves under Node.
       const { connectLiveStack } = await import(/* webpackIgnore: true */ './preprodStack.js');
       const { join } = await import(/* webpackIgnore: true */ 'node:path');
@@ -327,11 +370,19 @@ export class PreprodOnChainClient {
   }
 
   /** Get the wallet's current state. */
-  getStatus(): { connected: boolean; address: string; balance: bigint | null } {
+  getStatus(): {
+    connected: boolean;
+    address: string;
+    balance: bigint | null;
+    stackKind: 'connector' | 'facade' | null;
+    lastError: string | null;
+  } {
     return {
       connected: this.walletConnected,
       address: this.walletAddress,
       balance: this.walletBalance,
+      stackKind: this.stackKind,
+      lastError: this.lastError,
     };
   }
 
@@ -386,9 +437,9 @@ export class PreprodOnChainClient {
     }
     if (!this.stack) {
       throw stackUnavailable(
-        'on-chain writes need the Node live stack (seed via MIDNIGHT_WALLET_SEED — CLI/e2e only). ' +
-          'A browser wallet connection alone does not wire on-chain transactions yet; ' +
-          'browser on-chain operations stay unavailable rather than simulated',
+        'on-chain operations need a live wallet stack — connect the Lace DApp Connector ' +
+          '(browser) or set MIDNIGHT_WALLET_SEED (CLI/e2e). Unavailable stays unavailable: ' +
+          'nothing here simulates',
       );
     }
     return this.stack;
@@ -660,8 +711,12 @@ export class PreprodConditionRuntime implements AsyncConditionRuntime {
       walletAddress: walletStatus.address,
       balance: walletStatus.balance,
       error: allOk
-        ? (walletConnected ? undefined : 'Connect a wallet (Lace extension or MIDNIGHT_WALLET_SEED)')
+        ? (walletConnected
+          ? undefined
+          : walletStatus.lastError ??
+            'Connect a wallet (Lace extension or MIDNIGHT_WALLET_SEED)')
         : 'Preprod endpoints unreachable from this device',
+      walletError: walletConnected ? undefined : (walletStatus.lastError ?? undefined),
       endpoints,
     };
 
@@ -917,13 +972,19 @@ function sourceIdFromName(name: string): Bytes32 {
  * Probe the network and connect a wallet, then build the Preprod runtime.
  * NEVER silently falls back to local: the returned status tells the UI which
  * state it is in (preprod / wallet-needed / network-down).
+ *
+ * `interactiveWallet` must be true only from a user gesture (the Connect
+ * Wallet button) — it is what allows the DApp Connector's enable prompt.
+ * Page-load calls (mount/retry) stay non-interactive: wallets are
+ * discovered, never silently enabled.
  */
 export async function createPreprodRuntime(
   config: ReturnType<typeof preprodConfigFromEnv>,
+  opts?: { interactiveWallet?: boolean },
 ): Promise<{ runtime: PreprodConditionRuntime; status: PreprodStatus }> {
   const endpoints = await probeEndpoints(config);
   const client = new PreprodOnChainClient(config);
-  await client.connectWallet();
+  await client.connectWallet(opts?.interactiveWallet ?? false);
 
   // The runtime reuses THIS client (its live stack is the connected one).
   const runtime = new PreprodConditionRuntime(client, endpoints, config);

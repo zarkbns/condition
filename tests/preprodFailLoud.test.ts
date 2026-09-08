@@ -3,10 +3,12 @@
 // The no-silent-fallback rule (BUILD_SPEC §7, preprodRuntime header) applies
 // doubly to on-chain writes: a placeholder "confirmed" tx hash or receipt id
 // would surface in the UI as settlement evidence that never existed on
-// chain. Until the provider stack is wired, every on-chain method must
-// reject with PreprodUnavailableError — never resolve.
+// chain. The live stack is wired now (CLI facade + browser DApp Connector),
+// so what remains under test is the boundary: with no stack attached, every
+// on-chain method must reject with PreprodUnavailableError — never resolve —
+// and a refused connection must report its precise reason, not a generic one.
 
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import {
   PreprodOnChainClient,
   PreprodUnavailableError,
@@ -119,5 +121,65 @@ describe('preprod on-chain operations fail loud while unwired', () => {
 
     expect(client.getTxHistory()).toHaveLength(0);
     expect(client.settlementContracts.size).toBe(0);
+  });
+});
+
+describe('browser connector connection attempts fail loud and specific', () => {
+  function injectedWallet(wallet: Record<string, unknown>) {
+    (globalThis as Record<string, unknown>)['window'] = { midnight: wallet };
+  }
+
+  function clearInjection() {
+    delete (globalThis as Record<string, unknown>)['window'];
+  }
+
+  it('reports the missing capability instead of pretending to connect', async () => {
+    injectedWallet({
+      legacy: {
+        rdns: 'com.legacy.wallet',
+        name: 'Legacy Wallet',
+        icon: '',
+        apiVersion: '3.1.0',
+        connect: () => Promise.reject(new Error('connect must not be attempted on a gated wallet')),
+      },
+    });
+    try {
+      const client = new PreprodOnChainClient(preprodConfigFromEnv({}));
+      await expect(client.connectWallet(true)).resolves.toBe(false);
+      const status = client.getStatus();
+      expect(status.connected).toBe(false);
+      expect(status.stackKind).toBeNull();
+      // The UI shows this verbatim — "unsupported connector generation" is
+      // actionable, "no wallet connected" is not.
+      expect(status.lastError).toMatch(/^unsupported-version:/);
+      expect(status.lastError).toContain('3.1.0');
+    } finally {
+      clearInjection();
+    }
+  });
+
+  it('names the missing injection when nothing is connected', async () => {
+    injectedWallet({});
+    try {
+      const client = new PreprodOnChainClient(preprodConfigFromEnv({}));
+      await expect(client.connectWallet(true)).resolves.toBe(false);
+      expect(client.getStatus().lastError).toMatch(/^no-wallet:/);
+    } finally {
+      clearInjection();
+    }
+  });
+
+  it('discovery alone never attempts a connection', async () => {
+    const connect = vi.fn(() => Promise.reject(new Error('must not connect on page load')));
+    injectedWallet({ mnLace: { rdns: 'io.lace.midnight', name: 'Lace', icon: '', apiVersion: '4.0.1', connect } });
+    try {
+      const client = new PreprodOnChainClient(preprodConfigFromEnv({}));
+      await expect(client.connectWallet(false)).resolves.toBe(true);
+      expect(connect).not.toHaveBeenCalled();
+      expect(client.walletsDiscovered.map((w) => w.id)).toEqual(['mnLace']);
+      expect(client.getStatus().connected).toBe(false);
+    } finally {
+      clearInjection();
+    }
   });
 });
