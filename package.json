@@ -15,7 +15,7 @@
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "test": "vitest run",
     "test:watch": "vitest",
-    "dev": "next dev frontend",
+    "dev": "npm run build:zk-artifacts && next dev frontend",
     "deploy": "tsx deploy/deploy.ts",
     "probe:browser-stack": "tsx scripts/probe-browser-stack.ts",
     "postinstall": "node scripts/postinstall.mjs"

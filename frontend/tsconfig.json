@@ -23,7 +23,8 @@
     "src/**/*.ts",
     "src/**/*.tsx",
     "pages/**/*.tsx",
-    "tests/**/*.tsx"
+    "tests/**/*.tsx",
+    "../src/utils/managedContracts.ts"
   ],
   "exclude": [
     "node_modules"
