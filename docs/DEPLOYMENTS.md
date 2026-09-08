@@ -140,3 +140,32 @@ Requirements:
 - Midnight network egress; when unreachable, the deployer falls back to local
   real-runtime verification of the same compiled contracts and records the
   honest blocker in `deploy/deployments.json`.
+
+## Browser connector path — adapter verification (2026-09-07)
+
+The Midnight DApp Connector adapter (`src/utils/laceConnector.ts`) was run
+end-to-end against Preprod by `scripts/probe-browser-stack.ts`: the CLI
+facade wallet wears the connector interface (real balance/submit wiring),
+and `getProvingProvider` is answered by the real proof server 8.1.0 — fed
+with circuit key material the adapter fetched over HTTP from the served
+artifacts (`frontend/public/contracts`), exactly the data flow of a Lace
+wallet proving for a visitor. Five transactions, all confirmed via the
+adapter's identifier-watch path and independently re-verified on the
+indexer (all `SUCCESS`):
+
+| Step | Tx hash | Block |
+|---|---|---|
+| policy deploy | `317b9376cf85e23f58d374d0c45940579fbda61b0a44ba455817a7355783a26d` | 2450988 |
+| create (`policyId 0x4505fa16…33d83a`) | `a476019019200399b86d6c2d406ee6ed3c3fd7541ea5a99117f35dfe734d4f56` | 2450997 |
+| fund | `c9ecabf1e216e8f16f5f13800daaaafe435f605aea27982f8eb05982eb683a23` | 2451001 |
+| enroll (`commitment 0x7a399c9e…563fab`) | `92d369cb6f3ad22a22113883cb22f8ea21e8f967988358ce870986050b6beef4` | 2451006 |
+| record_trigger | `17fcf2d6ecbaf26fbe8058219b84af3c4593805781b2bbc1d20118807b846b8b` | 2451010 |
+
+Scope note (honest boundary): this proves the adapter code path, the
+connector wire formats (hex tx strings, `signature`/`proof`/`binding`
+markers, `contract#circuit` key locations), the HTTP artifact-fetch zk
+config, wallet-delegated proving semantics, and indexer confirmation —
+with the real proof server and the real wallet behind the connector
+interface. The Lace extension UI itself (injection, enable prompt, its
+in-extension prover) is the one surface not exercisable from a headless
+device; the final in-browser click-through happens with Lace installed.

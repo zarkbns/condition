@@ -353,7 +353,19 @@ CI sequence (must pass before "done"): `npm run build` → `npm run test` → `n
 
 ## 10. Frontend Specification
 
-Next.js (Pages Router) — pages: `/` (dashboard: policies + statuses), `/policy` (create), `/claim` (submit private claim), `/receipt` (browse + verify receipts). All protocol calls go through `src/services` via a browser-compatible runtime context; proof generation happens in the page (client-side, Invariant 2). No secrets in localStorage — holder secrets live in memory for the session (documented UX tradeoff; wallet integration is the deployment path, see `docs/MIDNIGHT_NOTES.md`).
+Next.js (Pages Router) — pages: `/` (dashboard: policies + statuses), `/policy` (create), `/claim` (submit private claim), `/receipt` (browse + verify receipts), `/verify` + `/explorer` (public evidence). All protocol calls go through `src/services` via a browser-compatible runtime context; proof generation happens in the page (client-side, Invariant 2). No secrets in localStorage — holder secrets live in memory for the session (documented UX tradeoff; wallet integration is the deployment path, see `docs/MIDNIGHT_NOTES.md`).
+
+### 10.1 Browser transaction path (Midnight DApp Connector, connector API v4)
+
+A visitor's browser can run the real lifecycle against Preprod through the Lace DApp Connector (`src/utils/laceConnector.ts`), with **no seed, no Condition-hosted prover, and no private data reaching Condition infrastructure**:
+
+1. **Connect (user gesture only):** discover wallets injected at `window.midnight.{id}`, require connector API v4 (`apiVersion` + feature probe), connect to `preprod`, verify the wallet's own network id. Refused connections and missing capabilities fail loud (`ConnectorError`) — never degrade.
+2. **Prepare:** `createUnprovenDeployTx` / `createUnprovenCallTx` run the compiled circuits locally (compact-runtime wasm) with the witness closures in page memory — holder secrets never leave the page.
+3. **Prove (wallet-delegated):** `dappConnectorProofProvider(api, FetchZkConfigProvider(<origin>/contracts/<name>), CostModel.initialCostModel())` hands the wallet the circuit's PUBLIC key material (compiler outputs served from the site: `keys/*.prover|.verifier`, `zkir/*.bzkir` — copied by `scripts/copy-zk-artifacts.mjs`, committed for Vercel). The wallet computes the proofs (`getProvingProvider`); the deprecated connector `proverServerUri` is ignored — Condition runs no prover.
+4. **Balance + sign (wallet):** the proven unbound tx is serialized (ledger-v8, hex) and passed to `balanceUnsealedTransaction(hex, {payFees:true})`; the wallet pays fees from its own balances, adds balancing inputs/outputs, signs, and returns the sealed tx. The page never holds keys.
+5. **Submit + confirm:** `submitTransaction(sealedHex)` relays via the wallet; confirmation polls the indexer v3 by transaction identifier (`watchForTxData`), with the deploy path's address-trail recovery (a recovered tx must still be `SucceedEntirely` — failed txs are hard errors, never relabeled).
+
+Trust boundary (same level as the CLI path): the serialized proof preimage — which contains witness outputs — flows only from the page to the **user's own wallet**, exactly as the CLI path hands it to the local proof server. Condition's servers see nothing (zero API routes). Verification harness: `scripts/probe-browser-stack.ts` (real proofs, real Preprod confirmations through this exact code path).
 
 ---
 

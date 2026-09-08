@@ -17,6 +17,7 @@
     "test:watch": "vitest",
     "dev": "next dev frontend",
     "deploy": "tsx deploy/deploy.ts",
+    "probe:browser-stack": "tsx scripts/probe-browser-stack.ts",
     "postinstall": "node scripts/postinstall.mjs"
   },
   "devDependencies": {
