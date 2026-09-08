@@ -287,7 +287,7 @@ export default function Home() {
               href="/verify"
               className="tw-rounded tw-border tw-border-line-strong tw-px-6 tw-py-3 tw-text-sm tw-font-medium tw-tracking-wide tw-text-ink hover:tw-border-white/50"
             >
-              Verify a receipt
+              Verify independently
             </a>
             <a
               href="/explorer"
@@ -299,7 +299,7 @@ export default function Home() {
               href="/receipt"
               className="tw-rounded tw-border tw-border-line-strong tw-px-6 tw-py-3 tw-text-sm tw-font-medium tw-tracking-wide tw-text-ink hover:tw-border-white/50"
             >
-              Verify a receipt
+              View a receipt
             </a>
           </div>
         </div>
