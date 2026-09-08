@@ -105,9 +105,14 @@ export function ConditionProvider({ children }: { children: ReactNode }) {
     await doRefresh();
   }, [doRefresh]);
 
-  // Build the Preprod runtime: probe endpoints, connect wallet, wire services.
-  // Page load is NON-interactive: DApp Connector wallets are discovered but
-  // never silently enabled — the enable prompt requires a user gesture.
+  // Build the Preprod runtime: probe remote endpoints, discover wallets,
+  // wire services. Page load is NON-interactive and passive: only public
+  // HTTPS endpoints are probed (never the CLI's local proof server — a
+  // loopback fetch from a public site raises a device permission prompt),
+  // and DApp Connector wallets are discovered via property reads but never
+  // enabled or connected. Every permission-bearing request, including the
+  // wallet connect prompt itself, is deferred to the explicit Connect
+  // Wallet button (connectWallet below).
   const connect = useCallback(async () => {
     setStatus((s) => ({ ...s, mode: 'connecting', label: 'Connecting to Preprod…' }));
     const config = preprodConfigFromEnv(

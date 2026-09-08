@@ -7,12 +7,15 @@ const isAndroidArm64 = process.platform === 'android' && process.arch === 'arm64
 // the defaults mirror PREPROD_ENDPOINTS in src/utils/preprodRuntime.ts
 // (Midnight Preprod, indexer API v3 — the surface this repo's SDK
 // generation is verified against; see docs/DEPLOYMENTS.md).
-// MIDNIGHT_WALLET_SEED is deliberately absent — it is server/CLI-only and
-// must never be inlined into the client bundle.
+// NEXT_PREPROD_PROVER is deliberately absent: the loopback proof server is
+// CLI-only configuration. Browser proving is wallet-delegated (DApp
+// Connector), and inlining the 127.0.0.1 URL into a public bundle only
+// invites a private-network fetch — the thing that raises Chrome's Local
+// Network Access permission prompt. MIDNIGHT_WALLET_SEED is absent too —
+// it is server/CLI-only and must never be inlined into the client bundle.
 const PREPROD_ENDPOINT_DEFAULTS = {
   NEXT_PUBLIC_MIDNIGHT_INDEXER: 'https://indexer.preprod.midnight.network/api/v3/graphql',
   NEXT_PUBLIC_MIDNIGHT_INDEXER_WS: 'wss://indexer.preprod.midnight.network/api/v3/graphql/ws',
-  NEXT_PREPROD_PROVER: 'http://127.0.0.1:6300',
   NEXT_PREPROD_NODE: 'https://rpc.preprod.midnight.network',
   NEXT_PUBLIC_MIDNIGHT_NETWORK: 'Preprod',
 };

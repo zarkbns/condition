@@ -63,7 +63,6 @@ export function NetworkBadge(props: NetworkBadgeProps) {
           <>
             <span className="net-badge-detail" style={{ display: 'inline-flex', gap: 3, alignItems: 'center' }}>
               <span className="net-badge-dot static" style={{ background: endpoints.indexer ? '#f0f0f0' : '#4d4d4d' }} />
-              <span className="net-badge-dot static" style={{ background: endpoints.prover ? '#f0f0f0' : '#4d4d4d' }} />
               <span className="net-badge-dot static" style={{ background: endpoints.node ? '#f0f0f0' : '#4d4d4d' }} />
             </span>
             <button className="net-badge-btn" onClick={onRetry}>

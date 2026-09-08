@@ -72,9 +72,8 @@ export function ConnectionGate({ children }: { children: ReactNode }) {
           <div className="notice error">
             <strong>Preprod network is unreachable from this device.</strong>
             <p style={{ marginTop: 8 }}>
-              The indexer, prover, or node could not be reached (
+              The indexer or node could not be reached (
               {status.endpoints.indexer ? 'indexer ok' : 'indexer down'} ·{' '}
-              {status.endpoints.prover ? 'prover ok' : 'prover down'} ·{' '}
               {status.endpoints.node ? 'node ok' : 'node down'}). On-chain
               interactions are impossible right now — we are not silently
               falling back to a simulation.

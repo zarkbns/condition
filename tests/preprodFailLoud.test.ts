@@ -13,6 +13,7 @@ import {
   PreprodOnChainClient,
   PreprodUnavailableError,
   preprodConfigFromEnv,
+  probeEndpoints,
 } from '../src/utils/preprodRuntime.js';
 import { TriggerType, ComparisonOp } from '../src/types/index.js';
 
@@ -180,6 +181,60 @@ describe('browser connector connection attempts fail loud and specific', () => {
       expect(client.getStatus().connected).toBe(false);
     } finally {
       clearInjection();
+    }
+  });
+});
+
+describe('endpoint probing never touches device-local addresses from a browser', () => {
+  // The prover URL is a loopback proof server (CLI-only). A public page
+  // fetching 127.0.0.1 makes Chrome raise its Local Network Access
+  // permission prompt ("access other apps and services on this device") —
+  // these tests pin that page-load probing can never send that packet.
+  const PROVER_URL = 'http://127.0.0.1:6300';
+
+  function stubFetch(record: (url: string) => void): () => void {
+    const realFetch = globalThis.fetch;
+    globalThis.fetch = (input) => {
+      record(String(input));
+      return Promise.resolve(new Response('', { status: 400 }));
+    };
+    return () => {
+      globalThis.fetch = realFetch;
+    };
+  }
+
+  it('a browser context reports the prover without sending any packet at it', async () => {
+    const urls: string[] = [];
+    (globalThis as Record<string, unknown>)['window'] = {};
+    const restoreFetch = stubFetch((u) => urls.push(u));
+    try {
+      const endpoints = await probeEndpoints(preprodConfigFromEnv({}));
+      expect(endpoints.indexer).toBe(true);
+      expect(endpoints.node).toBe(true);
+      // Down WITHOUT a packet: browser proving is wallet-delegated, and the
+      // prover flag never gates mode selection.
+      expect(endpoints.prover).toBe(false);
+      expect(urls).not.toContain(PROVER_URL);
+      expect(urls.every((u) => u.startsWith('https://'))).toBe(true);
+    } finally {
+      restoreFetch();
+      delete (globalThis as Record<string, unknown>)['window'];
+    }
+  });
+
+  it('the CLI context still probes the local prover (fail-loud before proving)', async () => {
+    const urls: string[] = [];
+    const restoreFetch = stubFetch((u) => urls.push(u));
+    try {
+      // The prover URL is CLI configuration — supplied explicitly here, the
+      // way the e2e/deploy CLI callers do.
+      const endpoints = await probeEndpoints(
+        preprodConfigFromEnv({ NEXT_PREPROD_PROVER: PROVER_URL }),
+      );
+      expect(endpoints.prover).toBe(true);
+      expect(urls).toContain(PROVER_URL);
+    } finally {
+      restoreFetch();
     }
   });
 });

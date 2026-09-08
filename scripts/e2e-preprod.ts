@@ -213,6 +213,9 @@ function termsToState(terms: PolicyTerms) {
 async function main(): Promise<void> {
   const stage = parseStage();
   const config = preprodConfigFromEnv(process.env);
+  // CLI default: the local proof server. Node-only — the browser never
+  // carries a prover URL (see preprodConfigFromEnv).
+  config.prover ??= 'http://127.0.0.1:6300';
 
   step(`PROBE PREPROD ENDPOINTS (stage: ${stage})`);
   const endpoints = await probeEndpoints(config);
@@ -229,7 +232,7 @@ async function main(): Promise<void> {
   }
   if (!endpoints.prover) {
     console.error(
-      `  ✗ no proof server reachable at ${config.prover} — contract proving will fail.\n` +
+      `  ✗ no proof server reachable at ${config.prover ?? 'http://127.0.0.1:6300'} — contract proving will fail.\n` +
       `    Start the local proof server first (see docs/DEPLOYMENTS.md and .qwen/launch-proofserver810.sh).`,
     );
     process.exit(1);

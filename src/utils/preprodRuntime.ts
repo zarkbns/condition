@@ -97,7 +97,14 @@ export interface PreprodStatus {
    * verbatim so "fail loud" reaches the user, not just the console.
    */
   walletError?: string;
-  /** Indexer / prover / node reachability checks. */
+  /**
+   * Remote service reachability (indexer, node) plus the prover flag.
+   * The prover flag is NOT probed from the browser: page load must never
+   * touch local-device addresses (a public site fetching 127.0.0.1 makes
+   * Chrome raise a Local Network Access permission prompt), and browser
+   * proving is wallet-delegated anyway. In the CLI, probeEndpoints reports
+   * the local proof server honestly.
+   */
   endpoints: {
     indexer: boolean;
     prover: boolean;
@@ -140,23 +147,31 @@ export const PREPROD_ENDPOINTS = {
   // (deploy/deploy.ts pushed every wallet-stack query through it, live).
   // v4 exists and currently answers the same read queries, but nothing in
   // this repo has been verified against it — see docs/DEPLOYMENTS.md.
-  // No hosted Preprod prover exists: proofs are generated client-side
-  // (Invariant 2), and contract proving that needs a proof server uses a
-  // local Docker proof server (localhost:6300).
+  // There is deliberately NO default prover URL here: no hosted Preprod
+  // prover exists, proofs are generated client-side (Invariant 2), and the
+  // browser proves through the DApp Connector wallet. The local proof
+  // server is CLI-only configuration (MIDNIGHT_PROVER_URL / the e2e
+  // script's own default) — a loopback URL must never ship in a browser
+  // bundle or be fetched from a public page (Chrome Local Network Access
+  // permission prompt).
   indexerHttp: 'https://indexer.preprod.midnight.network/api/v3/graphql',
   indexerWs: 'wss://indexer.preprod.midnight.network/api/v3/graphql/ws',
-  prover: 'http://127.0.0.1:6300',
   node: 'https://rpc.preprod.midnight.network',
 } as const;
 
 export interface PreprodConfig {
   indexerHttp: string;
   indexerWs: string;
-  prover: string;
   node: string;
   networkLabel: string;
   /** Base URL serving contracts/{policy,settlement}/{keys,zkir} for the browser proving path. */
   zkArtifactsBase?: string;
+  /**
+   * CLI-only: local proof server for contract proving. NEVER fetched by the
+   * browser (a loopback fetch from a public page raises a device permission
+   * prompt); browser proving is wallet-delegated. Set only by Node callers.
+   */
+  prover?: string;
 }
 
 export function preprodConfigFromEnv(
@@ -165,10 +180,12 @@ export function preprodConfigFromEnv(
   return {
     indexerHttp: env['NEXT_PUBLIC_MIDNIGHT_INDEXER'] ?? PREPROD_ENDPOINTS.indexerHttp,
     indexerWs: env['NEXT_PUBLIC_MIDNIGHT_INDEXER_WS'] ?? PREPROD_ENDPOINTS.indexerWs,
-    prover: env['NEXT_PREPROD_PROVER'] ?? PREPROD_ENDPOINTS.prover,
-    node: env['NEXT_PREPROD_NODE'] ?? PREPROD_ENDPOINTS.node,
     networkLabel: env['NEXT_PUBLIC_MIDNIGHT_NETWORK'] ?? 'Preprod',
     zkArtifactsBase: env['NEXT_PUBLIC_ZK_ARTIFACTS_BASE'],
+    // CLI-only surface: read from the environment verbatim, no default —
+    // a browser build must never carry a loopback proof-server URL.
+    prover: env['NEXT_PREPROD_PROVER'],
+    node: env['NEXT_PREPROD_NODE'] ?? PREPROD_ENDPOINTS.node,
   };
 }
 
@@ -224,9 +241,19 @@ export async function probeEndpoints(
     }
     return false;
   };
+  // The prover URL is a local proof server (127.0.0.1) reachable only from
+  // the CLI. From a public browser page, a fetch at it is a private-network
+  // request: Chrome gates it behind the "access other apps and services on
+  // this device" permission prompt — exactly what page load must never
+  // raise. The browser proves through the DApp Connector wallet instead, so
+  // from a browser context the prover flag is unconditionally false (no
+  // packet is sent); only a Node context probes the real URL. The flag
+  // never gates mode selection: PreprodConditionRuntime requires only
+  // indexer + node.
+  const isBrowser = typeof window !== 'undefined';
   const [indexer, prover, node] = await Promise.all([
     probe(config.indexerHttp),
-    probe(config.prover),
+    isBrowser ? Promise.resolve(false) : probe(config.prover ?? ''),
     probe(config.node),
   ]);
   return { indexer, prover, node };
@@ -345,10 +372,19 @@ export class PreprodOnChainClient {
       // a native dynamic import that only resolves under Node.
       const { connectLiveStack } = await import(/* webpackIgnore: true */ './preprodStack.js');
       const { join } = await import(/* webpackIgnore: true */ 'node:path');
+      // CLI callers (e2e/deploy) configure the proof server explicitly. A
+      // browser bundle never reaches this branch, so no loopback default
+      // may live here — it would ship the URL to every visitor.
+      const proverUrl = this.config.prover;
+      if (!proverUrl) {
+        this.lastError =
+          'CLI wallet stack needs a proof server: set NEXT_PREPROD_PROVER (e.g. the local proof server URL)';
+        return false;
+      }
       const stack = await connectLiveStack({
         indexerHttp: this.config.indexerHttp,
         indexerWs: this.config.indexerWs,
-        proverUrl: this.config.prover,
+        proverUrl,
         nodeUrl: this.config.node,
         seed,
         // Resolved from the repo root by preprodStack itself; the snapshot
