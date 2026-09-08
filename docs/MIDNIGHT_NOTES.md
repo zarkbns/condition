@@ -26,6 +26,11 @@ npm run build:contracts
 
 Output includes generated TS contract API + ZK proving/verification keys (`keys/*.prover|verifier`) and zkir files.
 
+The compiled contract MODULES (ledger decoder, circuits, Contract class) are
+also committed under `contracts/managed-compact/<name>/contract` — that is the
+build-time-resolvable source every consumer loads (see that directory's
+README); a recompile refreshes them via `npm run build:zk-artifacts`.
+
 ---
 
 ## 2. Compact language notes (0.16–0.22)

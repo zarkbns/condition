@@ -37,7 +37,8 @@ runtime dependency.
 
 `npm run build:contracts` regenerates `contracts/managed/`;
 `npm run build:zk-artifacts` (also run by `build:frontend` and `dev`) copies
-freshly compiled modules here when present and falls back to keeping these
-committed copies otherwise. Runtime loading goes through
-`src/utils/managedContracts.ts`, which prefers a freshly compiled local
-`contracts/managed` module and falls back to the committed module here.
+freshly compiled modules here when a local compile exists and keeps these
+committed copies otherwise (the normal path on a fresh clone / Vercel).
+Runtime loading goes through `src/utils/managedContracts.ts`, which resolves
+exactly these committed modules everywhere — production, tests, and the demo
+— so every layer executes the same compiler output.
