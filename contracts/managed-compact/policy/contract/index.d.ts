@@ -19,6 +19,10 @@ export enum PolicyStatus { active = 0,
 
 export type Witnesses<PS> = {
   holder_secret(context: __compactRuntime.WitnessContext<Ledger, PS>): [PS, Uint8Array];
+  insurer_secret(context: __compactRuntime.WitnessContext<Ledger, PS>): [PS, Uint8Array];
+  oracle_secret1(context: __compactRuntime.WitnessContext<Ledger, PS>): [PS, Uint8Array];
+  oracle_secret2(context: __compactRuntime.WitnessContext<Ledger, PS>): [PS, Uint8Array];
+  settlement_secret(context: __compactRuntime.WitnessContext<Ledger, PS>): [PS, Uint8Array];
 }
 
 export type ImpureCircuits<PS> = {
@@ -35,15 +39,20 @@ export type ImpureCircuits<PS> = {
          nonce_0: bigint): __compactRuntime.CircuitResults<PS, Uint8Array>;
   fund(context: __compactRuntime.CircuitContext<PS>, amount_0: bigint): __compactRuntime.CircuitResults<PS, []>;
   enroll(context: __compactRuntime.CircuitContext<PS>, premium_paid_0: bigint): __compactRuntime.CircuitResults<PS, Uint8Array>;
+  register_oracle1(context: __compactRuntime.CircuitContext<PS>,
+                   source_0: Uint8Array): __compactRuntime.CircuitResults<PS, []>;
+  register_oracle2(context: __compactRuntime.CircuitContext<PS>,
+                   source_0: Uint8Array): __compactRuntime.CircuitResults<PS, []>;
   record_trigger(context: __compactRuntime.CircuitContext<PS>,
                  value1_0: bigint,
                  value2_0: bigint,
                  source1_0: Uint8Array,
-                 source2_0: Uint8Array): __compactRuntime.CircuitResults<PS, []>;
-  begin_settling(context: __compactRuntime.CircuitContext<PS>): __compactRuntime.CircuitResults<PS, []>;
-  expire(context: __compactRuntime.CircuitContext<PS>, now_0: bigint): __compactRuntime.CircuitResults<PS, []>;
+                 source2_0: Uint8Array,
+                 recorded_at_0: bigint): __compactRuntime.CircuitResults<PS, []>;
+  authorize_settlement(context: __compactRuntime.CircuitContext<PS>): __compactRuntime.CircuitResults<PS, []>;
   mark_settled(context: __compactRuntime.CircuitContext<PS>): __compactRuntime.CircuitResults<PS, []>;
   mark_denied(context: __compactRuntime.CircuitContext<PS>): __compactRuntime.CircuitResults<PS, []>;
+  expire(context: __compactRuntime.CircuitContext<PS>, now_0: bigint): __compactRuntime.CircuitResults<PS, []>;
   withdraw(context: __compactRuntime.CircuitContext<PS>): __compactRuntime.CircuitResults<PS, bigint>;
 }
 
@@ -61,15 +70,20 @@ export type ProvableCircuits<PS> = {
          nonce_0: bigint): __compactRuntime.CircuitResults<PS, Uint8Array>;
   fund(context: __compactRuntime.CircuitContext<PS>, amount_0: bigint): __compactRuntime.CircuitResults<PS, []>;
   enroll(context: __compactRuntime.CircuitContext<PS>, premium_paid_0: bigint): __compactRuntime.CircuitResults<PS, Uint8Array>;
+  register_oracle1(context: __compactRuntime.CircuitContext<PS>,
+                   source_0: Uint8Array): __compactRuntime.CircuitResults<PS, []>;
+  register_oracle2(context: __compactRuntime.CircuitContext<PS>,
+                   source_0: Uint8Array): __compactRuntime.CircuitResults<PS, []>;
   record_trigger(context: __compactRuntime.CircuitContext<PS>,
                  value1_0: bigint,
                  value2_0: bigint,
                  source1_0: Uint8Array,
-                 source2_0: Uint8Array): __compactRuntime.CircuitResults<PS, []>;
-  begin_settling(context: __compactRuntime.CircuitContext<PS>): __compactRuntime.CircuitResults<PS, []>;
-  expire(context: __compactRuntime.CircuitContext<PS>, now_0: bigint): __compactRuntime.CircuitResults<PS, []>;
+                 source2_0: Uint8Array,
+                 recorded_at_0: bigint): __compactRuntime.CircuitResults<PS, []>;
+  authorize_settlement(context: __compactRuntime.CircuitContext<PS>): __compactRuntime.CircuitResults<PS, []>;
   mark_settled(context: __compactRuntime.CircuitContext<PS>): __compactRuntime.CircuitResults<PS, []>;
   mark_denied(context: __compactRuntime.CircuitContext<PS>): __compactRuntime.CircuitResults<PS, []>;
+  expire(context: __compactRuntime.CircuitContext<PS>, now_0: bigint): __compactRuntime.CircuitResults<PS, []>;
   withdraw(context: __compactRuntime.CircuitContext<PS>): __compactRuntime.CircuitResults<PS, bigint>;
 }
 
@@ -103,15 +117,20 @@ export type Circuits<PS> = {
          nonce_0: bigint): __compactRuntime.CircuitResults<PS, Uint8Array>;
   fund(context: __compactRuntime.CircuitContext<PS>, amount_0: bigint): __compactRuntime.CircuitResults<PS, []>;
   enroll(context: __compactRuntime.CircuitContext<PS>, premium_paid_0: bigint): __compactRuntime.CircuitResults<PS, Uint8Array>;
+  register_oracle1(context: __compactRuntime.CircuitContext<PS>,
+                   source_0: Uint8Array): __compactRuntime.CircuitResults<PS, []>;
+  register_oracle2(context: __compactRuntime.CircuitContext<PS>,
+                   source_0: Uint8Array): __compactRuntime.CircuitResults<PS, []>;
   record_trigger(context: __compactRuntime.CircuitContext<PS>,
                  value1_0: bigint,
                  value2_0: bigint,
                  source1_0: Uint8Array,
-                 source2_0: Uint8Array): __compactRuntime.CircuitResults<PS, []>;
-  begin_settling(context: __compactRuntime.CircuitContext<PS>): __compactRuntime.CircuitResults<PS, []>;
-  expire(context: __compactRuntime.CircuitContext<PS>, now_0: bigint): __compactRuntime.CircuitResults<PS, []>;
+                 source2_0: Uint8Array,
+                 recorded_at_0: bigint): __compactRuntime.CircuitResults<PS, []>;
+  authorize_settlement(context: __compactRuntime.CircuitContext<PS>): __compactRuntime.CircuitResults<PS, []>;
   mark_settled(context: __compactRuntime.CircuitContext<PS>): __compactRuntime.CircuitResults<PS, []>;
   mark_denied(context: __compactRuntime.CircuitContext<PS>): __compactRuntime.CircuitResults<PS, []>;
+  expire(context: __compactRuntime.CircuitContext<PS>, now_0: bigint): __compactRuntime.CircuitResults<PS, []>;
   withdraw(context: __compactRuntime.CircuitContext<PS>): __compactRuntime.CircuitResults<PS, bigint>;
   nullifier_for(context: __compactRuntime.CircuitContext<PS>,
                 secret_0: Uint8Array,
@@ -121,6 +140,7 @@ export type Circuits<PS> = {
 export type Ledger = {
   readonly created: boolean;
   readonly insurer_key: Uint8Array;
+  readonly insurer_auth: Uint8Array;
   readonly terms_digest_v: Uint8Array;
   readonly trigger_type: TriggerType;
   readonly op: ComparisonOp;
@@ -132,11 +152,20 @@ export type Ledger = {
   readonly funded: bigint;
   readonly enrollment_commitment: Uint8Array;
   readonly enrolled: boolean;
+  oracle_registry: {
+    isEmpty(): boolean;
+    size(): bigint;
+    member(elem_0: Uint8Array): boolean;
+    [Symbol.iterator](): Iterator<Uint8Array>
+  };
+  readonly oracle_count: bigint;
+  readonly settle_auth_commit: Uint8Array;
   readonly trigger_fired: boolean;
   readonly trigger_recorded: boolean;
   readonly trigger_value: bigint;
   readonly trigger_source1: Uint8Array;
   readonly trigger_source2: Uint8Array;
+  readonly trigger_digest_v: Uint8Array;
   readonly status: PolicyStatus;
   readonly created_at: bigint;
   readonly policy_id: Uint8Array;

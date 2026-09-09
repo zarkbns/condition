@@ -37,6 +37,18 @@ export type PureCircuits = {
                    nullifier_0: Uint8Array,
                    trigger_outcome_0: boolean,
                    payout_commitment_v_0: Uint8Array): Uint8Array;
+  insurer_auth(policy_id_0: Uint8Array, secret_0: Uint8Array): Uint8Array;
+  oracle_entry(policy_id_0: Uint8Array,
+               source_0: Uint8Array,
+               secret_0: Uint8Array): Uint8Array;
+  settle_auth(policy_id_0: Uint8Array, secret_0: Uint8Array): Uint8Array;
+  reading_digest(source_0: Uint8Array, value_0: bigint): Uint8Array;
+  trigger_digest(policy_id_0: Uint8Array,
+                 outcome_0: boolean,
+                 observed_0: bigint,
+                 recorded_at_0: bigint,
+                 reading1_digest_0: Uint8Array,
+                 reading2_digest_0: Uint8Array): Uint8Array;
 }
 
 export type Circuits<PS> = {
@@ -79,6 +91,26 @@ export type Circuits<PS> = {
                    nullifier_0: Uint8Array,
                    trigger_outcome_0: boolean,
                    payout_commitment_v_0: Uint8Array): __compactRuntime.CircuitResults<PS, Uint8Array>;
+  insurer_auth(context: __compactRuntime.CircuitContext<PS>,
+               policy_id_0: Uint8Array,
+               secret_0: Uint8Array): __compactRuntime.CircuitResults<PS, Uint8Array>;
+  oracle_entry(context: __compactRuntime.CircuitContext<PS>,
+               policy_id_0: Uint8Array,
+               source_0: Uint8Array,
+               secret_0: Uint8Array): __compactRuntime.CircuitResults<PS, Uint8Array>;
+  settle_auth(context: __compactRuntime.CircuitContext<PS>,
+              policy_id_0: Uint8Array,
+              secret_0: Uint8Array): __compactRuntime.CircuitResults<PS, Uint8Array>;
+  reading_digest(context: __compactRuntime.CircuitContext<PS>,
+                 source_0: Uint8Array,
+                 value_0: bigint): __compactRuntime.CircuitResults<PS, Uint8Array>;
+  trigger_digest(context: __compactRuntime.CircuitContext<PS>,
+                 policy_id_0: Uint8Array,
+                 outcome_0: boolean,
+                 observed_0: bigint,
+                 recorded_at_0: bigint,
+                 reading1_digest_0: Uint8Array,
+                 reading2_digest_0: Uint8Array): __compactRuntime.CircuitResults<PS, Uint8Array>;
 }
 
 export type Ledger = {

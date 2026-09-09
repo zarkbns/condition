@@ -19,7 +19,8 @@ export type ImpureCircuits<PS> = {
        payout_in_0: bigint,
        start_in_0: bigint,
        expiry_in_0: bigint,
-       trigger_fired_in_0: boolean): __compactRuntime.CircuitResults<PS, []>;
+       trigger_fired_in_0: boolean,
+       trigger_digest_in_0: Uint8Array): __compactRuntime.CircuitResults<PS, []>;
   settle(context: __compactRuntime.CircuitContext<PS>,
          now_0: bigint,
          submitted_nullifier_0: Uint8Array): __compactRuntime.CircuitResults<PS, Uint8Array>;
@@ -35,7 +36,8 @@ export type ProvableCircuits<PS> = {
        payout_in_0: bigint,
        start_in_0: bigint,
        expiry_in_0: bigint,
-       trigger_fired_in_0: boolean): __compactRuntime.CircuitResults<PS, []>;
+       trigger_fired_in_0: boolean,
+       trigger_digest_in_0: Uint8Array): __compactRuntime.CircuitResults<PS, []>;
   settle(context: __compactRuntime.CircuitContext<PS>,
          now_0: bigint,
          submitted_nullifier_0: Uint8Array): __compactRuntime.CircuitResults<PS, Uint8Array>;
@@ -54,7 +56,8 @@ export type Circuits<PS> = {
        payout_in_0: bigint,
        start_in_0: bigint,
        expiry_in_0: bigint,
-       trigger_fired_in_0: boolean): __compactRuntime.CircuitResults<PS, []>;
+       trigger_fired_in_0: boolean,
+       trigger_digest_in_0: Uint8Array): __compactRuntime.CircuitResults<PS, []>;
   settle(context: __compactRuntime.CircuitContext<PS>,
          now_0: bigint,
          submitted_nullifier_0: Uint8Array): __compactRuntime.CircuitResults<PS, Uint8Array>;
@@ -71,6 +74,7 @@ export type Ledger = {
   readonly start: bigint;
   readonly expiry: bigint;
   readonly trigger_fired: boolean;
+  readonly trigger_digest_v: Uint8Array;
   spent_nullifiers: {
     isEmpty(): boolean;
     size(): bigint;

@@ -9,13 +9,17 @@ const _descriptor_2 = new __compactRuntime.CompactTypeUnsignedInteger(1844674407
 
 const _descriptor_3 = new __compactRuntime.CompactTypeUnsignedInteger(255n, 1);
 
-const _descriptor_4 = new __compactRuntime.CompactTypeVector(2, _descriptor_0);
+const _descriptor_4 = new __compactRuntime.CompactTypeVector(3, _descriptor_0);
 
-const _descriptor_5 = new __compactRuntime.CompactTypeVector(6, _descriptor_0);
+const _descriptor_5 = new __compactRuntime.CompactTypeVector(7, _descriptor_0);
 
-const _descriptor_6 = new __compactRuntime.CompactTypeVector(9, _descriptor_0);
+const _descriptor_6 = new __compactRuntime.CompactTypeVector(6, _descriptor_0);
 
-const _descriptor_7 = new __compactRuntime.CompactTypeVector(3, _descriptor_0);
+const _descriptor_7 = new __compactRuntime.CompactTypeVector(4, _descriptor_0);
+
+const _descriptor_8 = new __compactRuntime.CompactTypeVector(9, _descriptor_0);
+
+const _descriptor_9 = new __compactRuntime.CompactTypeVector(2, _descriptor_0);
 
 class _Either_0 {
   alignment() {
@@ -33,9 +37,9 @@ class _Either_0 {
   }
 }
 
-const _descriptor_8 = new _Either_0();
+const _descriptor_10 = new _Either_0();
 
-const _descriptor_9 = new __compactRuntime.CompactTypeUnsignedInteger(340282366920938463463374607431768211455n, 16);
+const _descriptor_11 = new __compactRuntime.CompactTypeUnsignedInteger(340282366920938463463374607431768211455n, 16);
 
 class _ContractAddress_0 {
   alignment() {
@@ -51,7 +55,7 @@ class _ContractAddress_0 {
   }
 }
 
-const _descriptor_10 = new _ContractAddress_0();
+const _descriptor_12 = new _ContractAddress_0();
 
 export class Contract {
   witnesses;
@@ -94,6 +98,21 @@ export class Contract {
       },
       statement_digest(context, ...args_1) {
         return { result: pureCircuits.statement_digest(...args_1), context };
+      },
+      insurer_auth(context, ...args_1) {
+        return { result: pureCircuits.insurer_auth(...args_1), context };
+      },
+      oracle_entry(context, ...args_1) {
+        return { result: pureCircuits.oracle_entry(...args_1), context };
+      },
+      settle_auth(context, ...args_1) {
+        return { result: pureCircuits.settle_auth(...args_1), context };
+      },
+      reading_digest(context, ...args_1) {
+        return { result: pureCircuits.reading_digest(...args_1), context };
+      },
+      trigger_digest(context, ...args_1) {
+        return { result: pureCircuits.trigger_digest(...args_1), context };
       }
     };
     this.impureCircuits = {};
@@ -131,18 +150,26 @@ export class Contract {
     }
   }
   _persistentHash_0(value_0) {
-    const result_0 = __compactRuntime.persistentHash(_descriptor_6, value_0);
+    const result_0 = __compactRuntime.persistentHash(_descriptor_8, value_0);
     return result_0;
   }
   _persistentHash_1(value_0) {
-    const result_0 = __compactRuntime.persistentHash(_descriptor_7, value_0);
+    const result_0 = __compactRuntime.persistentHash(_descriptor_9, value_0);
     return result_0;
   }
   _persistentHash_2(value_0) {
-    const result_0 = __compactRuntime.persistentHash(_descriptor_4, value_0);
+    const result_0 = __compactRuntime.persistentHash(_descriptor_6, value_0);
     return result_0;
   }
   _persistentHash_3(value_0) {
+    const result_0 = __compactRuntime.persistentHash(_descriptor_7, value_0);
+    return result_0;
+  }
+  _persistentHash_4(value_0) {
+    const result_0 = __compactRuntime.persistentHash(_descriptor_4, value_0);
+    return result_0;
+  }
+  _persistentHash_5(value_0) {
     const result_0 = __compactRuntime.persistentHash(_descriptor_5, value_0);
     return result_0;
   }
@@ -196,17 +223,17 @@ export class Contract {
                                                                         'proofs.compact line 64 char 5')]);
   }
   _derive_eligibility_0(secret_0, policy_id_0) {
-    return this._persistentHash_1([new Uint8Array([99, 111, 110, 100, 105, 116, 105, 111, 110, 58, 101, 108, 105, 103, 58, 118, 49, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]),
+    return this._persistentHash_4([new Uint8Array([99, 111, 110, 100, 105, 116, 105, 111, 110, 58, 101, 108, 105, 103, 58, 118, 49, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]),
                                    policy_id_0,
                                    secret_0]);
   }
   _derive_nullifier_0(secret_0, policy_id_0) {
-    return this._persistentHash_1([new Uint8Array([99, 111, 110, 100, 105, 116, 105, 111, 110, 58, 110, 117, 108, 108, 58, 118, 49, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]),
+    return this._persistentHash_4([new Uint8Array([99, 111, 110, 100, 105, 116, 105, 111, 110, 58, 110, 117, 108, 108, 58, 118, 49, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]),
                                    policy_id_0,
                                    secret_0]);
   }
   _payout_commitment_0(amount_0) {
-    return this._persistentHash_2([new Uint8Array([99, 111, 110, 100, 105, 116, 105, 111, 110, 58, 97, 109, 111, 117, 110, 116, 58, 118, 49, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]),
+    return this._persistentHash_1([new Uint8Array([99, 111, 110, 100, 105, 116, 105, 111, 110, 58, 97, 109, 111, 117, 110, 116, 58, 118, 49, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]),
                                    __compactRuntime.convertFieldToBytes(32,
                                                                         amount_0,
                                                                         'proofs.compact line 94 char 5')]);
@@ -223,7 +250,7 @@ export class Contract {
                     settled_0,
                     timestamp_0)
   {
-    return this._persistentHash_3([new Uint8Array([99, 111, 110, 100, 105, 116, 105, 111, 110, 58, 114, 101, 99, 101, 105, 112, 116, 58, 118, 49, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]),
+    return this._persistentHash_2([new Uint8Array([99, 111, 110, 100, 105, 116, 105, 111, 110, 58, 114, 101, 99, 101, 105, 112, 116, 58, 118, 49, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]),
                                    policy_id_0,
                                    proof_hash_0,
                                    this._bool_bytes32_0(trigger_outcome_0),
@@ -236,12 +263,50 @@ export class Contract {
                       trigger_outcome_0,
                       payout_commitment_v_0)
   {
-    return this._persistentHash_3([new Uint8Array([99, 111, 110, 100, 105, 116, 105, 111, 110, 58, 115, 116, 109, 116, 58, 118, 49, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]),
+    return this._persistentHash_2([new Uint8Array([99, 111, 110, 100, 105, 116, 105, 111, 110, 58, 115, 116, 109, 116, 58, 118, 49, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]),
                                    policy_id_0,
                                    terms_digest_v_0,
                                    nullifier_0,
                                    this._bool_bytes32_0(trigger_outcome_0),
                                    payout_commitment_v_0]);
+  }
+  _insurer_auth_0(policy_id_0, secret_0) {
+    return this._persistentHash_4([new Uint8Array([99, 111, 110, 100, 105, 116, 105, 111, 110, 58, 97, 117, 116, 104, 58, 118, 49, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]),
+                                   policy_id_0,
+                                   secret_0]);
+  }
+  _oracle_entry_0(policy_id_0, source_0, secret_0) {
+    return this._persistentHash_3([new Uint8Array([99, 111, 110, 100, 105, 116, 105, 111, 110, 58, 111, 114, 97, 99, 108, 101, 58, 118, 49, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]),
+                                   policy_id_0,
+                                   source_0,
+                                   secret_0]);
+  }
+  _settle_auth_0(policy_id_0, secret_0) {
+    return this._persistentHash_4([new Uint8Array([99, 111, 110, 100, 105, 116, 105, 111, 110, 58, 115, 101, 116, 116, 108, 101, 58, 118, 49, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]),
+                                   policy_id_0,
+                                   secret_0]);
+  }
+  _reading_digest_0(source_0, value_0) {
+    return this._persistentHash_4([new Uint8Array([99, 111, 110, 100, 105, 116, 105, 111, 110, 58, 114, 101, 97, 100, 105, 110, 103, 58, 118, 49, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]),
+                                   source_0,
+                                   __compactRuntime.convertFieldToBytes(32,
+                                                                        value_0,
+                                                                        'proofs.compact line 200 char 5')]);
+  }
+  _trigger_digest_0(policy_id_0,
+                    outcome_0,
+                    observed_0,
+                    recorded_at_0,
+                    reading1_digest_0,
+                    reading2_digest_0)
+  {
+    return this._persistentHash_5([new Uint8Array([99, 111, 110, 100, 105, 116, 105, 111, 110, 58, 116, 114, 105, 103, 103, 101, 114, 58, 118, 49, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]),
+                                   policy_id_0,
+                                   this._bool_bytes32_0(outcome_0),
+                                   this._scalar_bytes32_0(observed_0),
+                                   this._scalar_bytes32_0(recorded_at_0),
+                                   reading1_digest_0,
+                                   reading2_digest_0]);
   }
 }
 export function ledger(stateOrChargedState) {
@@ -589,6 +654,161 @@ export const pureCircuits = {
                                               nullifier_0,
                                               trigger_outcome_0,
                                               payout_commitment_v_0);
+  },
+  insurer_auth: (...args_0) => {
+    if (args_0.length !== 2) {
+      throw new __compactRuntime.CompactError(`insurer_auth: expected 2 arguments (as invoked from Typescript), received ${args_0.length}`);
+    }
+    const policy_id_0 = args_0[0];
+    const secret_0 = args_0[1];
+    if (!(policy_id_0.buffer instanceof ArrayBuffer && policy_id_0.BYTES_PER_ELEMENT === 1 && policy_id_0.length === 32)) {
+      __compactRuntime.typeError('insurer_auth',
+                                 'argument 1',
+                                 'proofs.compact line 162 char 1',
+                                 'Bytes<32>',
+                                 policy_id_0)
+    }
+    if (!(secret_0.buffer instanceof ArrayBuffer && secret_0.BYTES_PER_ELEMENT === 1 && secret_0.length === 32)) {
+      __compactRuntime.typeError('insurer_auth',
+                                 'argument 2',
+                                 'proofs.compact line 162 char 1',
+                                 'Bytes<32>',
+                                 secret_0)
+    }
+    return _dummyContract._insurer_auth_0(policy_id_0, secret_0);
+  },
+  oracle_entry: (...args_0) => {
+    if (args_0.length !== 3) {
+      throw new __compactRuntime.CompactError(`oracle_entry: expected 3 arguments (as invoked from Typescript), received ${args_0.length}`);
+    }
+    const policy_id_0 = args_0[0];
+    const source_0 = args_0[1];
+    const secret_0 = args_0[2];
+    if (!(policy_id_0.buffer instanceof ArrayBuffer && policy_id_0.BYTES_PER_ELEMENT === 1 && policy_id_0.length === 32)) {
+      __compactRuntime.typeError('oracle_entry',
+                                 'argument 1',
+                                 'proofs.compact line 172 char 1',
+                                 'Bytes<32>',
+                                 policy_id_0)
+    }
+    if (!(source_0.buffer instanceof ArrayBuffer && source_0.BYTES_PER_ELEMENT === 1 && source_0.length === 32)) {
+      __compactRuntime.typeError('oracle_entry',
+                                 'argument 2',
+                                 'proofs.compact line 172 char 1',
+                                 'Bytes<32>',
+                                 source_0)
+    }
+    if (!(secret_0.buffer instanceof ArrayBuffer && secret_0.BYTES_PER_ELEMENT === 1 && secret_0.length === 32)) {
+      __compactRuntime.typeError('oracle_entry',
+                                 'argument 3',
+                                 'proofs.compact line 172 char 1',
+                                 'Bytes<32>',
+                                 secret_0)
+    }
+    return _dummyContract._oracle_entry_0(policy_id_0, source_0, secret_0);
+  },
+  settle_auth: (...args_0) => {
+    if (args_0.length !== 2) {
+      throw new __compactRuntime.CompactError(`settle_auth: expected 2 arguments (as invoked from Typescript), received ${args_0.length}`);
+    }
+    const policy_id_0 = args_0[0];
+    const secret_0 = args_0[1];
+    if (!(policy_id_0.buffer instanceof ArrayBuffer && policy_id_0.BYTES_PER_ELEMENT === 1 && policy_id_0.length === 32)) {
+      __compactRuntime.typeError('settle_auth',
+                                 'argument 1',
+                                 'proofs.compact line 187 char 1',
+                                 'Bytes<32>',
+                                 policy_id_0)
+    }
+    if (!(secret_0.buffer instanceof ArrayBuffer && secret_0.BYTES_PER_ELEMENT === 1 && secret_0.length === 32)) {
+      __compactRuntime.typeError('settle_auth',
+                                 'argument 2',
+                                 'proofs.compact line 187 char 1',
+                                 'Bytes<32>',
+                                 secret_0)
+    }
+    return _dummyContract._settle_auth_0(policy_id_0, secret_0);
+  },
+  reading_digest: (...args_0) => {
+    if (args_0.length !== 2) {
+      throw new __compactRuntime.CompactError(`reading_digest: expected 2 arguments (as invoked from Typescript), received ${args_0.length}`);
+    }
+    const source_0 = args_0[0];
+    const value_0 = args_0[1];
+    if (!(source_0.buffer instanceof ArrayBuffer && source_0.BYTES_PER_ELEMENT === 1 && source_0.length === 32)) {
+      __compactRuntime.typeError('reading_digest',
+                                 'argument 1',
+                                 'proofs.compact line 196 char 1',
+                                 'Bytes<32>',
+                                 source_0)
+    }
+    if (!(typeof(value_0) === 'bigint' && value_0 >= 0n && value_0 <= 18446744073709551615n)) {
+      __compactRuntime.typeError('reading_digest',
+                                 'argument 2',
+                                 'proofs.compact line 196 char 1',
+                                 'Uint<0..18446744073709551616>',
+                                 value_0)
+    }
+    return _dummyContract._reading_digest_0(source_0, value_0);
+  },
+  trigger_digest: (...args_0) => {
+    if (args_0.length !== 6) {
+      throw new __compactRuntime.CompactError(`trigger_digest: expected 6 arguments (as invoked from Typescript), received ${args_0.length}`);
+    }
+    const policy_id_0 = args_0[0];
+    const outcome_0 = args_0[1];
+    const observed_0 = args_0[2];
+    const recorded_at_0 = args_0[3];
+    const reading1_digest_0 = args_0[4];
+    const reading2_digest_0 = args_0[5];
+    if (!(policy_id_0.buffer instanceof ArrayBuffer && policy_id_0.BYTES_PER_ELEMENT === 1 && policy_id_0.length === 32)) {
+      __compactRuntime.typeError('trigger_digest',
+                                 'argument 1',
+                                 'proofs.compact line 208 char 1',
+                                 'Bytes<32>',
+                                 policy_id_0)
+    }
+    if (!(typeof(outcome_0) === 'boolean')) {
+      __compactRuntime.typeError('trigger_digest',
+                                 'argument 2',
+                                 'proofs.compact line 208 char 1',
+                                 'Boolean',
+                                 outcome_0)
+    }
+    if (!(typeof(observed_0) === 'bigint' && observed_0 >= 0n && observed_0 <= 18446744073709551615n)) {
+      __compactRuntime.typeError('trigger_digest',
+                                 'argument 3',
+                                 'proofs.compact line 208 char 1',
+                                 'Uint<0..18446744073709551616>',
+                                 observed_0)
+    }
+    if (!(typeof(recorded_at_0) === 'bigint' && recorded_at_0 >= 0n && recorded_at_0 <= 18446744073709551615n)) {
+      __compactRuntime.typeError('trigger_digest',
+                                 'argument 4',
+                                 'proofs.compact line 208 char 1',
+                                 'Uint<0..18446744073709551616>',
+                                 recorded_at_0)
+    }
+    if (!(reading1_digest_0.buffer instanceof ArrayBuffer && reading1_digest_0.BYTES_PER_ELEMENT === 1 && reading1_digest_0.length === 32)) {
+      __compactRuntime.typeError('trigger_digest',
+                                 'argument 5',
+                                 'proofs.compact line 208 char 1',
+                                 'Bytes<32>',
+                                 reading1_digest_0)
+    }
+    if (!(reading2_digest_0.buffer instanceof ArrayBuffer && reading2_digest_0.BYTES_PER_ELEMENT === 1 && reading2_digest_0.length === 32)) {
+      __compactRuntime.typeError('trigger_digest',
+                                 'argument 6',
+                                 'proofs.compact line 208 char 1',
+                                 'Bytes<32>',
+                                 reading2_digest_0)
+    }
+    return _dummyContract._trigger_digest_0(policy_id_0,
+                                            outcome_0,
+                                            observed_0,
+                                            recorded_at_0,
+                                            reading1_digest_0,
+                                            reading2_digest_0);
   }
 };
 export const contractReferenceLocations =
