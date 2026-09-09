@@ -18,6 +18,7 @@ import { beforeAll, describe, expect, it } from 'vitest';
 import { existsSync } from 'node:fs';
 import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { triggerDigestOf } from '../src/core/hashing.js';
 
 const root = join(dirname(fileURLToPath(import.meta.url)), '..');
 const committedDir = join(root, 'contracts', 'managed-compact');
@@ -70,7 +71,7 @@ maybe('two-layer execution parity (real compact-runtime)', () => {
     const {
       createRuntime,
     } = await import('../src/utils/midnight.js');
-    const { hexToBytes, nullifierOf, randomAddress, sourceIdDigest, readingDigestOf } =
+    const { hexToBytes, nullifierOf, randomAddress, sourceIdDigest } =
       await import('../src/core/hashing.js');
     const { ComparisonOp, TriggerType } = await import('../src/types/index.js');
 
@@ -98,14 +99,14 @@ maybe('two-layer execution parity (real compact-runtime)', () => {
 
     runtime.triggerService.registerSource('open-meteo');
     runtime.triggerService.registerSource('noaa');
-    const caps = runtime.publicLedger.capabilityFor(policy.policyId);
-    runtime.triggerService.registerOracle(policy.policyId, 'open-meteo', caps.oracleSecrets[0]!, T_TRIGGER);
-    runtime.triggerService.registerOracle(policy.policyId, 'noaa', caps.oracleSecrets[1]!, T_TRIGGER);
+    const capsRef = runtime.publicLedger.capabilityFor(policy.policyId);
+    runtime.triggerService.registerOracle(policy.policyId, 'open-meteo', capsRef.oracleSecrets[0]!, T_TRIGGER);
+    runtime.triggerService.registerOracle(policy.policyId, 'noaa', capsRef.oracleSecrets[1]!, T_TRIGGER);
     const triggerRecord = runtime.triggerService.submitReadings(
       policy.policyId,
       [
-        { source: 'open-meteo', value: 4000, oracleSecret: caps.oracleSecrets[0]! },
-        { source: 'noaa', value: 3600, oracleSecret: caps.oracleSecrets[1]! },
+        { source: 'open-meteo', value: 4000, oracleSecret: capsRef.oracleSecrets[0]! },
+        { source: 'noaa', value: 3600, oracleSecret: capsRef.oracleSecrets[1]! },
       ],
       T_TRIGGER,
     );
@@ -125,8 +126,17 @@ maybe('two-layer execution parity (real compact-runtime)', () => {
     );
 
     // ---- Compiled contract layer (real Midnight runtime) -------------------
+    // The v2 contracts consume the capability secrets as witnesses — the
+    // SAME set the reference layer generated (one credential set across
+    // layers, exactly as the on-chain flow does).
+    const caps = runtime.publicLedger.capabilityFor(policy.policyId);
+    const hex32 = (s: string) => hexToBytes(s);
     const policyContract = new Policy({
-      holder_secret: (c: { privateState: unknown }) => [c.privateState, hexToBytes(secret)],
+      holder_secret: (c: { privateState: unknown }) => [c.privateState, hex32(secret)],
+      insurer_secret: (c: { privateState: unknown }) => [c.privateState, hex32(caps.insurerSecret)],
+      settlement_secret: (c: { privateState: unknown }) => [c.privateState, hex32(caps.settlementSecret)],
+      oracle_secret1: (c: { privateState: unknown }) => [c.privateState, hex32(caps.oracleSecrets[0]!)],
+      oracle_secret2: (c: { privateState: unknown }) => [c.privateState, hex32(caps.oracleSecrets[1]!)],
     });
     let ctx = rt.createCircuitContext(
       rt.dummyContractAddress(),
@@ -159,13 +169,23 @@ maybe('two-layer execution parity (real compact-runtime)', () => {
     ctx = r.context;
     r = policyContract.circuits.enroll(ctx, PREMIUM);
     ctx = r.context;
+    // Insurer-gated oracle credential registration (v2), then the trigger
+    // with recorded_at and both credential witnesses.
+    r = policyContract.circuits.register_oracle1(ctx, hexToBytes(sourceIdDigest('open-meteo')));
+    ctx = r.context;
+    r = policyContract.circuits.register_oracle2(ctx, hexToBytes(sourceIdDigest('noaa')));
+    ctx = r.context;
     r = policyContract.circuits.record_trigger(
       ctx,
       4000n,
       3600n,
       hexToBytes(sourceIdDigest('open-meteo')),
       hexToBytes(sourceIdDigest('noaa')),
+      BigInt(T_TRIGGER),
     );
+    ctx = r.context;
+    // Authorize the settlement instance (v2) — the mark_settled path needs it.
+    r = policyContract.circuits.authorize_settlement(ctx);
     ctx = r.context;
 
     const pLed = policyLedger(ctx.currentQueryContext.state);
@@ -215,6 +235,7 @@ maybe('two-layer execution parity (real compact-runtime)', () => {
       pLed.start,
       pLed.expiry,
       pLed.trigger_fired,
+      pLed.trigger_digest_v,
     );
     sCtx = sl.context;
     const nullifier = nullifierOf(policy.policyId, secret);
@@ -224,9 +245,11 @@ maybe('two-layer execution parity (real compact-runtime)', () => {
     function canonical(rec: {
       readings: Array<{ sourceId: string; value: number }>;
     }): [[Uint8Array, number], [Uint8Array, number]] {
+      // Canonical order: value-ascending, ties by submission order — the
+      // same rule the circuits apply to the Uint values.
       const rs = rec.readings.map((x) => [hexToBytes(x.sourceId), x.value] as [Uint8Array, number]);
       const [x, y] = rs as [[Uint8Array, number], [Uint8Array, number]];
-      return readingDigestOf(hex(x[0]), x[1]) < readingDigestOf(hex(y[0]), y[1]) ? [x, y] : [y, x];
+      return x[1] <= y[1] ? [x, y] : [y, x];
     }
 
     return {
@@ -242,6 +265,7 @@ maybe('two-layer execution parity (real compact-runtime)', () => {
         enrollmentCommitment: hex(pLed.enrollment_commitment),
         triggerFired: pLed.trigger_fired,
         triggerValue: pLed.trigger_value,
+        triggerDigest: hex(pLed.trigger_digest_v),
         receiptId: hex(st.result),
         lastStatus: sLed.last_status,
         lastReceiptHash: hex(sLed.last_receipt_hash),
@@ -274,6 +298,11 @@ maybe('two-layer execution parity (real compact-runtime)', () => {
   it('trigger outcome + observed value parity (min2 lower median)', () => {
     expect(flow.compact.triggerFired).toBe(flow.triggerRecord.outcome);
     expect(flow.compact.triggerValue).toBe(BigInt(flow.triggerRecord.observedValue));
+  });
+
+  it('canonical trigger digest parity (accepted evidence binding)', () => {
+    expect(flow.compact.triggerDigest)
+      .toBe(triggerDigestOf(flow.policy.policyId, flow.triggerRecord));
   });
 
   it('receipt id: compiled settle() == TS settlement receipt', () => {
