@@ -98,11 +98,14 @@ maybe('two-layer execution parity (real compact-runtime)', () => {
 
     runtime.triggerService.registerSource('open-meteo');
     runtime.triggerService.registerSource('noaa');
+    const caps = runtime.publicLedger.capabilityFor(policy.policyId);
+    runtime.triggerService.registerOracle(policy.policyId, 'open-meteo', caps.oracleSecrets[0]!, T_TRIGGER);
+    runtime.triggerService.registerOracle(policy.policyId, 'noaa', caps.oracleSecrets[1]!, T_TRIGGER);
     const triggerRecord = runtime.triggerService.submitReadings(
       policy.policyId,
       [
-        { source: 'open-meteo', value: 4000 },
-        { source: 'noaa', value: 3600 },
+        { source: 'open-meteo', value: 4000, oracleSecret: caps.oracleSecrets[0]! },
+        { source: 'noaa', value: 3600, oracleSecret: caps.oracleSecrets[1]! },
       ],
       T_TRIGGER,
     );

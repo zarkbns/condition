@@ -146,11 +146,16 @@ export function fullFlow(options: FlowOptions = {}): FlowResult {
 
   runtime.triggerService.registerSource(SOURCE_A);
   runtime.triggerService.registerSource(SOURCE_B);
+  // The session's own oracle credentials (capability model — the same
+  // secrets the on-chain witnesses would consume for this policy).
+  const caps = runtime.publicLedger.capabilityFor(policy.policyId);
+  runtime.triggerService.registerOracle(policy.policyId, SOURCE_A, caps.oracleSecrets[0]!, T_TRIGGER);
+  runtime.triggerService.registerOracle(policy.policyId, SOURCE_B, caps.oracleSecrets[1]!, T_TRIGGER);
   const triggerRecord = runtime.triggerService.submitReadings(
     policy.policyId,
     [
-      { source: SOURCE_A, value: triggerValues[0] },
-      { source: SOURCE_B, value: triggerValues[1] },
+      { source: SOURCE_A, value: triggerValues[0], oracleSecret: caps.oracleSecrets[0]! },
+      { source: SOURCE_B, value: triggerValues[1], oracleSecret: caps.oracleSecrets[1]! },
     ],
     T_TRIGGER,
   );
@@ -172,6 +177,9 @@ export function fullFlow(options: FlowOptions = {}): FlowResult {
     };
   }
 
+  // The insurer authorizes THE one settlement instance (v2 capability gate)
+  // before the settlement flow may finalize the policy.
+  runtime.publicLedger.authorizeSettlement(policy.policyId, T_CLAIM);
   const { receipt, releasedAmount } = runtime.settlementService.settle(
     T_SETTLE, proof, policy.policyId, witnessProvider,
   );
@@ -181,6 +189,18 @@ export function fullFlow(options: FlowOptions = {}): FlowResult {
     policyId: policy.policyId, terms: policy.terms, secret, commitment, triggerRecord, proof,
     witnessProvider, receipt, releasedAmount,
   };
+}
+
+/**
+ * The insurer authorizes THE one settlement instance (v2 capability gate).
+ * Called by fullFlow before the settle stage; returns the settleAuthCommit.
+ */
+export function authorizeSettlementFor(
+  runtime: ConditionRuntime,
+  policyId: string,
+  now: number,
+): string {
+  return runtime.publicLedger.authorizeSettlement(policyId, now);
 }
 
 // ---------------------------------------------------------------------------

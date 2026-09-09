@@ -49,7 +49,7 @@ describe('preprod on-chain operations fail loud while unwired', () => {
         premium: 100_000_000n,
         coverageStart: NOW,
         expiry: NOW + 30 * 86_400,
-      }, NOW, 0),
+      }, NOW, 0, { insurerSecret: '0x' + '11'.repeat(32), settlementSecret: '0x' + '22'.repeat(32), oracleSecrets: ['0x' + '33'.repeat(32), '0x' + '44'.repeat(32)] }),
     );
     expect(err).toBeInstanceOf(PreprodUnavailableError);
     expect(err.kind).toBe('wallet');
@@ -70,7 +70,7 @@ describe('preprod on-chain operations fail loud while unwired', () => {
         premium: 100_000_000n,
         coverageStart: NOW,
         expiry: NOW + 30 * 86_400,
-      }, NOW, 0),
+      }, NOW, 0, { insurerSecret: '0x' + '11'.repeat(32), settlementSecret: '0x' + '22'.repeat(32), oracleSecrets: ['0x' + '33'.repeat(32), '0x' + '44'.repeat(32)] }),
       client.fundOnChain(policyId, 5_000_000_000n, NOW),
       client.enrollOnChain(policyId, 100_000_000n, NOW),
       client.recordTriggerOnChain(policyId, 4000, 3600, '0x' + '01'.repeat(32), '0x' + '02'.repeat(32), NOW),

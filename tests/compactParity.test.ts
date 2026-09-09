@@ -26,7 +26,11 @@ import {
   sourceIdDigest,
   statementDigestOf,
   termsDigestOf,
+  triggerDigestOf,
   witnessDigestOf,
+  insurerAuthOf,
+  oracleEntryOf,
+  settleAuthOf,
 } from '../src/core/hashing.js';
 import { ComparisonOp, TriggerType, type ClaimWitness } from '../src/types/index.js';
 import { makeTerms, PAYOUT, T0, T_CLAIM, T_EXPIRY, T_SETTLE, T_TRIGGER } from './helpers.js';
@@ -73,10 +77,16 @@ const GOLDEN_COMMITMENT = '0x4aa2895f8d63f734caf376fa924c8e2cd86aa3723bfeef164cc
 const GOLDEN_NULLIFIER = '0x6d99f6e80e5143764c172c081d1c5cfd1a86ebf240bfd9cbdf574de9840b176d';
 const GOLDEN_PAYOUT_COMMITMENT = '0x548ab6b8c998df69bdfe91f7f6ec319d39713d5eabfc9205ccf43e9ee7b1963e';
 const GOLDEN_STATEMENT = '0x794cbc7998696c6970481ce030f9729d749a94edfadb14aa7e8d4308be999b4a';
-const GOLDEN_WITNESS_DIGEST = '0x220b333a83b041337930947f77e10aee8ce69789e1b2bcb4015bc692fc0ef006';
-const GOLDEN_PROOF_HASH = '0x077ffea14647557cae5e66bb83785f0631d928396f6322f0040c487a1dac9415';
-const GOLDEN_RECEIPT_ID = '0x623ea2d7240d3f77e74e95ab8b2d0896139a6f2fbde643c149c6ad676453008b';
+const GOLDEN_WITNESS_DIGEST = '0x2a02bc14d51dc4a4335c199bd5a6126ebf2602820c41bd59cbf2a04488f689af';
+const GOLDEN_PROOF_HASH = '0x4333ea05afd5ee710f6caedd4c2ea856d43d78c30bcd174c648e606e3fdefcdf';
+const GOLDEN_RECEIPT_ID = '0xe7fca3f181a2e358a62024528cf4fb3c731319e4d5c13dd50a6aef53632c40ba';
 const GOLDEN_SOURCE_METEO = '0xc05df1274a22559d7b6c8b4c75d53cb01fb7d5439cd4fb58dd0a8b7b50838b5e';
+// Wave-1 capability + trigger-evidence pins.
+const GOLDEN_INSURER_AUTH = '0xf5ab2547eef5f50eba194bed49b29bbc3729ab5a4a1577f34eec2049a1803cc2';
+const GOLDEN_ORACLE_ENTRY_A = '0xd9b70c33255acf4ce79e1a34aa2b8b3e9cdcd802c82419dc0c882371e07274f0';
+const GOLDEN_ORACLE_ENTRY_B = '0xa4468376bd84184e47471b416d48952b58c3ac15838b64cbc52e3cd3adea93c9';
+const GOLDEN_SETTLE_AUTH = '0x11565aa809994dcefa696d82d64451f2d828625c0699c4a33eeb4b399710f362';
+const GOLDEN_TRIGGER_DIGEST = '0x5764cffb9846fb78ed8baa025dff03d90ab772f5a4a42804a1416bb254f16ed8';
 
 const goldenWitness = (): ClaimWitness => ({
   policyId: GOLDEN_POLICY_ID,
@@ -125,8 +135,30 @@ describe('golden digest pins — the Compact parity contract', () => {
     })).toBe(GOLDEN_STATEMENT);
   });
 
-  it('witness digest (readings digest-ascending)', () => {
+  it('witness digest (readings canonical value-ascending)', () => {
     expect(witnessDigestOf(goldenWitness())).toBe(GOLDEN_WITNESS_DIGEST);
+  });
+
+  // Wave-1 capability commitments — the on-chain authorization surface.
+  it('insurer auth H(auth:v1, policyId, insurerSecret)', () => {
+    expect(insurerAuthOf(GOLDEN_POLICY_ID, '0x' + '11'.repeat(32))).toBe(GOLDEN_INSURER_AUTH);
+  });
+  it('oracle entries H(oracle:v1, policyId, sourceId, secret)', () => {
+    expect(oracleEntryOf(GOLDEN_POLICY_ID, sourceIdDigest('open-meteo'), '0x' + '33'.repeat(32)))
+      .toBe(GOLDEN_ORACLE_ENTRY_A);
+    expect(oracleEntryOf(GOLDEN_POLICY_ID, sourceIdDigest('noaa'), '0x' + '44'.repeat(32)))
+      .toBe(GOLDEN_ORACLE_ENTRY_B);
+  });
+  it('settlement auth H(settle:v1, policyId, settlementSecret)', () => {
+    expect(settleAuthOf(GOLDEN_POLICY_ID, '0x' + '22'.repeat(32))).toBe(GOLDEN_SETTLE_AUTH);
+  });
+  it('trigger digest H(trigger:v1, policyId, outcome, observed, recordedAt, rd1, rd2)', () => {
+    expect(triggerDigestOf(GOLDEN_POLICY_ID, goldenWitness().triggerEvidence))
+      .toBe(GOLDEN_TRIGGER_DIGEST);
+    // Canonical: reordering an equivalent pair does not change the digest.
+    const reordered = goldenWitness().triggerEvidence;
+    const swapped = { ...reordered, readings: [...reordered.readings].reverse() };
+    expect(triggerDigestOf(GOLDEN_POLICY_ID, swapped)).toBe(GOLDEN_TRIGGER_DIGEST);
   });
 
   it('proof hash H(proof:v1, statement, witnessDigest)', () => {

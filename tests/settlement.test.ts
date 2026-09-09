@@ -15,6 +15,11 @@ import {
   witnessAt,
 } from './helpers.js';
 
+// The v2 settlement flow requires the insurer to authorize THE one
+// settlement instance before it may finalize the policy.
+const authorizeSettlement = (flow: ReturnType<typeof fullFlow>) =>
+  flow.runtime.publicLedger.authorizeSettlement(flow.policyId, T_CLAIM);
+
 const expectCode = (fn: () => unknown, code: ErrorCode) => {
   try {
     fn();
@@ -42,10 +47,13 @@ describe('happy path', () => {
     expect(receipt!.receiptId).toBe(receiptIdDigest(
       flow.policyId, flow.proof!.proofHash, true, true, T_SETTLE,
     ));
-    // Event trail: one event per transition (BUILD_SPEC §7.4).
+    // Event trail: one event per transition (BUILD_SPEC §7.4). The v2 flow
+    // adds the two insurer-gated oracle registrations before the trigger and
+    // the settlement authorization before finalization.
     expect(flow.runtime.publicLedger.listEvents().map((e) => e.type)).toEqual([
-      'PolicyCreated', 'PolicyFunded', 'HolderEnrolled', 'TriggerRecorded',
-      'ClaimSettled', 'ReceiptPublished',
+      'PolicyCreated', 'PolicyFunded', 'HolderEnrolled',
+      'OracleRegistered', 'OracleRegistered', 'TriggerRecorded',
+      'SettlementAuthorized', 'ClaimSettled', 'ReceiptPublished',
     ]);
   });
 
@@ -75,6 +83,7 @@ describe('happy path', () => {
 describe('double-claim protection (NULLIFIER_SPENT)', () => {
   it('a second settle with the same nullifier is rejected', () => {
     const flow = fullFlow({ upTo: 'claimed' });
+    authorizeSettlement(flow);
     const first = flow.runtime.settlementService.settle(
       T_SETTLE, flow.proof!, flow.policyId, flow.witnessProvider,
     );
@@ -93,6 +102,7 @@ describe('double-claim protection (NULLIFIER_SPENT)', () => {
     const flow = fullFlow({ upTo: 'claimed' });
     // Generate the replay proof BEFORE settling (settle is terminal).
     const replayProof = flow.runtime.claimService.submitClaim(flow.policyId, T_CLAIM + 1);
+    authorizeSettlement(flow);
     flow.runtime.settlementService.settle(T_SETTLE, flow.proof!, flow.policyId, flow.witnessProvider);
     // Same (policyId, secret) ⇒ same nullifier regardless of a new claimTime.
     expect(replayProof.publicInputs.nullifier).toBe(flow.proof!.publicInputs.nullifier);
@@ -110,6 +120,7 @@ describe('griefing resistance', () => {
       ...flow.witnessProvider(),
       holderSecret: '0x' + 'ee'.repeat(32),
     });
+    authorizeSettlement(flow);
     expectCode(
       () => flow.runtime.settlementService.settle(
         T_SETTLE, flow.proof!, flow.policyId, attackerWitness,
@@ -148,9 +159,14 @@ describe('griefing resistance', () => {
     rt.policyService.fund(other.policyId, PAYOUT, T_TRIGGER);
     const { commitment } = rt.claimService.enroll(other.policyId, T_TRIGGER);
     rt.policyService.publishEnrollment(other.policyId, commitment, PREMIUM, T_TRIGGER);
+    rt.triggerService.registerSource('open-meteo');
+    rt.triggerService.registerSource('noaa');
+    const otherCaps = rt.publicLedger.capabilityFor(other.policyId);
+    rt.triggerService.registerOracle(other.policyId, 'open-meteo', otherCaps.oracleSecrets[0]!, T_TRIGGER);
+    rt.triggerService.registerOracle(other.policyId, 'noaa', otherCaps.oracleSecrets[1]!, T_TRIGGER);
     rt.triggerService.submitReadings(other.policyId, [
-      { source: 'open-meteo', value: 4000 },
-      { source: 'noaa', value: 3600 },
+      { source: 'open-meteo', value: 4000, oracleSecret: otherCaps.oracleSecrets[0]! },
+      { source: 'noaa', value: 3600, oracleSecret: otherCaps.oracleSecrets[1]! },
     ], T_TRIGGER);
     expectCode(
       () => rt.settlementService.settle(
@@ -191,6 +207,7 @@ describe('funding guard', () => {
 describe('DENIED path', () => {
   it('trigger outcome false → DENIED receipt, zero release', () => {
     const flow = fullFlow({ upTo: 'claimed', triggerValues: [2000, 2200] });
+    authorizeSettlement(flow);
     const { receipt, releasedAmount } = flow.runtime.settlementService.settle(
       T_SETTLE, flow.proof!, flow.policyId, flow.witnessProvider,
     );
@@ -227,8 +244,9 @@ describe('finality + atomicity', () => {
     expectCode(
       () => flow.runtime.publicLedger.completeSettlement(
         flow.policyId, 'SETTLED', flow.receipt!, T_SETTLE + 1,
+        flow.runtime.publicLedger.capabilityFor(flow.policyId).settlementSecret,
       ),
-      ErrorCode.POLICY_INACTIVE, // SETTLED is not SETTLING — no overwrite path exists
+      ErrorCode.POLICY_INACTIVE, // SETTLED is terminal — no overwrite path exists
     );
     expect(flow.runtime.publicLedger.listReceipts()).toHaveLength(before);
     // Same receipt object returned by verifyReceipt — unchanged fields.

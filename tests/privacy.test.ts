@@ -110,11 +110,14 @@ describe('Invariant 1 — privacy boundary: the public ledger holds no private d
         'policyId', 'proofHash', 'receiptId', 'status', 'timestamp', 'triggerOutcome',
       ]);
     }
-    // Policy public shape: terms + digests + status + escrow + commitment + trigger.
+    // Policy public shape: terms + digests + status + escrow + commitment +
+    // trigger + the Wave-1 capability/evidence commitments (all one-way
+    // digests — public by the same argument as the enrollment commitment).
     const policy = flow.runtime.policyService.getPolicy(flow.policyId);
     expect(Object.keys(policy).sort()).toEqual([
-      'createdAt', 'enrollmentCommitment', 'fundedAmount', 'insurer', 'policyId',
-      'status', 'terms', 'termsDigest', 'trigger',
+      'createdAt', 'enrollmentCommitment', 'fundedAmount', 'insurer', 'insurerAuth',
+      'oracleRegistry', 'policyId', 'settleAuthCommit', 'status', 'terms',
+      'termsDigest', 'trigger', 'triggerDigest',
     ]);
   });
 
@@ -266,8 +269,9 @@ describe('Invariant 6 — no private data in contracts', () => {
   it('every public event type is from the fixed protocol vocabulary', () => {
     const flow = fullFlow();
     const VOCABULARY = new Set([
-      'PolicyCreated', 'PolicyFunded', 'HolderEnrolled', 'TriggerRecorded',
-      'TriggerRejected', 'ClaimSettled', 'ClaimDenied', 'ReceiptPublished',
+      'PolicyCreated', 'PolicyFunded', 'HolderEnrolled', 'OracleRegistered',
+      'TriggerRecorded', 'TriggerRejected', 'SettlementAuthorized',
+      'ClaimSettled', 'ClaimDenied', 'ReceiptPublished',
       'PolicyExpired', 'PolicyClosed',
     ]);
     for (const event of flow.runtime.publicLedger.listEvents()) {
@@ -280,9 +284,12 @@ describe('Invariant 6 — no private data in contracts', () => {
     const ALLOWED_EVENT_DATA_KEYS = new Set([
       'policyId', 'insurer', 'termsDigest', 'triggerType', 'operator', 'threshold',
       'payoutAmount', 'premium', 'coverageStart', 'expiry', // PolicyCreated
+      'insurerAuth', // PolicyCreated (capability commitment — one-way digest)
       'amount', 'fundedAmount', // PolicyFunded (escrow aggregates)
       'enrollmentCommitment', // HolderEnrolled
-      'observedValue', 'outcome', 'sourceIds', // TriggerRecorded
+      'oracleEntry', // OracleRegistered (H(policy, source, secret) — one-way)
+      'settleAuthCommit', // SettlementAuthorized (one-way capability digest)
+      'observedValue', 'outcome', 'sourceIds', 'triggerDigest', // TriggerRecorded
       'reason', // TriggerRejected
       'receiptId', 'proofHash', 'triggerOutcome', 'status', 'timestamp', // receipts
       'refundedAmount', // PolicyClosed
