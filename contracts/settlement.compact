@@ -1,13 +1,32 @@
 pragma language_version >= 0.19 && <= 0.22;
 
-// Condition — settlement contract (BUILD_SPEC.md §7.2).
+// Condition — settlement contract (BUILD_SPEC.md §7.2), Wave-1 hardened.
 //
 // One instance per policy, linked to it via link(). The core private circuit
 // is settle(): it takes the holder secret from the claimant's LOCAL witness
 // provider, derives eligibility and nullifier in-circuit, asserts binding
-// against the linked public policy facts, recomputes the payout from PUBLIC
+// against the linked public policy facts, re-derives the canonical trigger
+// digest from the claimant's private trigger evidence and asserts it equals
+// the digest the POLICY instance recorded, recomputes the payout from PUBLIC
 // terms only, and discloses exactly the receipt fields — proof hash, status,
 // timestamp. The settlement amount is NEVER disclosed (Invariant 1/3).
+//
+// AUTHORIZATION MODEL (compactc 0.30.0: no caller identity, no signature
+// verification, cross-contract calls not yet supported — probed 2026-09-08):
+//   - link() is gated by the HOLDER capability: only a caller who knows the
+//     enrolled holder secret can bind a settlement instance to a policy's
+//     fact set. An attacker can deploy mirror contracts but can never link
+//     one (no secret), so no third party can manufacture a settable mirror.
+//   - The copied facts are additionally bound to the policy's canonical
+//     trigger_digest (written on-chain by the policy instance's authorized
+//     oracles): settle() re-derives that digest from the claimant's private
+//     evidence witnesses and asserts equality, so substituted, reordered, or
+//     fabricated evidence cannot settle.
+//   - Residual, documented: the holder's own client chooses which fact set
+//     to link — the same trust domain as witness supply itself (BUILD_SPEC
+//     §5.4 / AGENTS.md ZK pipeline assumption). Third parties can verify any
+//     linked settlement against the policy instance's public ledger via
+//     /verify (cross-checks both ledgers).
 //
 // Privacy notes:
 //   - The witness digest (which touches the holder secret) is computed
@@ -15,10 +34,10 @@ pragma language_version >= 0.19 && <= 0.22;
 //   - The equality bits disclosed in the eligibility/nullifier asserts leak
 //     nothing beyond what a successful settlement already proves publicly:
 //     "the submitter of this nullifier is the enrolled holder".
-//   - Reading order (reading1/reading2 witnesses) is canonicalized by the
-//     claimant's client — digest-ascending, identical to the TS reference
-//     runtime's witnessDigestOf sort — so both layers hash identical
-//     preimages (tests/compactParity.test.ts pins the TS scheme).
+//   - Readings (reading1/reading2 witnesses) are supplied in the policy
+//     instance's RECORDED submission order (trigger_source1/source2 — public
+//     ledger facts); the claimant's client reads that order from the policy
+//     ledger. Both layers hash identical preimages (compactParity pins).
 //
 // Enum codes (0-based ordinals, shared with src/types/index.ts):
 //   PolicyStatus: ACTIVE=0, TRIGGERED=1, SETTLING=2, SETTLED=3, DENIED=4, EXPIRED=5, CLOSED=6
@@ -34,6 +53,7 @@ export ledger payout:                 Uint<64>;
 export ledger start:                  Uint<64>;
 export ledger expiry:                 Uint<64>;
 export ledger trigger_fired:          Boolean;
+export ledger trigger_digest_v:       Bytes<32>;
 export ledger spent_nullifiers:       Set<Bytes<32>>;
 export ledger settled_count:          Uint<64>;
 export ledger denied_count:           Uint<64>;
@@ -43,6 +63,7 @@ export ledger last_timestamp:         Uint<64>;
 
 // Private witnesses supplied by the claimant's local witness provider.
 // The holder secret NEVER leaves the claimant's device (Invariant 2).
+// Readings are in the policy's recorded submission order.
 witness holder_secret():   Bytes<32>;
 witness claim_time():      Uint<64>;
 witness observed_value():  Uint<64>;
@@ -112,6 +133,29 @@ pure circuit reading_digest_c(source: Bytes<32>, value: Uint<64>): Bytes<32> {
   ]);
 }
 
+// Canonical digest of the ACCEPTED trigger evidence — must equal the policy
+// instance's recorded trigger_digest (mirrors trigger_digest_c there and
+// triggerDigestOf in src/core/hashing.ts). Order-sensitive in the recorded
+// submission order.
+pure circuit trigger_digest_c(
+  policy_id_v: Bytes<32>,
+  outcome_v: Boolean,
+  observed_v: Uint<64>,
+  recorded_at_v: Uint<64>,
+  reading1_digest: Bytes<32>,
+  reading2_digest: Bytes<32>,
+): Bytes<32> {
+  return persistentHash<Vector<7, Bytes<32>>>([
+    pad(32, "condition:trigger:v1"),
+    policy_id_v,
+    bool_bytes32(outcome_v),
+    scalar_bytes32(observed_v),
+    scalar_bytes32(recorded_at_v),
+    reading1_digest,
+    reading2_digest,
+  ]);
+}
+
 pure circuit statement_digest_c(
   policy_id_v: Bytes<32>,
   terms_digest_v2: Bytes<32>,
@@ -131,7 +175,8 @@ pure circuit statement_digest_c(
 
 // Mirrors witnessDigestOf in src/core/hashing.ts. Wave 1 triggers carry
 // exactly two cross-verified readings; the claimant's client supplies them
-// digest-ascending so the preimage is canonical across layers.
+// in the policy's recorded order, identical to the reference runtime's
+// witnessDigestOf (tests/compactParity.test.ts pins the TS scheme).
 pure circuit witness_digest_c(
   policy_id_v: Bytes<32>,
   secret: Bytes<32>,
@@ -187,7 +232,10 @@ pure circuit receipt_digest_c(
 // ---------------------------------------------------------------------------
 
 // Bind this settlement instance to one policy. Every argument is public
-// policy data (mirrored from the policy instance) — disclosed verbatim.
+// policy data (mirrored from the policy instance) — disclosed verbatim —
+// and the LINK ITSELF is holder-capability-gated: the caller must prove
+// knowledge of the enrolled holder secret for the linked policy id, so a
+// copied fact set can only ever be bound by the enrolled holder.
 export circuit link(
   policy_id_in: Bytes<32>,
   terms_digest_in: Bytes<32>,
@@ -196,10 +244,16 @@ export circuit link(
   start_in: Uint<64>,
   expiry_in: Uint<64>,
   trigger_fired_in: Boolean,
+  trigger_digest_in: Bytes<32>,
 ): [] {
   assert(!linked, "ALREADY_CREATED");
   assert(payout_in > 0, "INSUFFICIENT_FUNDING");
   assert(start_in < expiry_in, "POLICY_INACTIVE");
+
+  // Holder capability (Invariant I1): the linking party IS the enrolled
+  // holder for the linked policy id + commitment pair.
+  const link_eligibility = derive_eligibility_c(holder_secret(), policy_id_in);
+  assert(disclose(link_eligibility == enrollment_commitment_in), "UNAUTHORIZED");
 
   linked                = true;
   policy_id             = disclose(policy_id_in);
@@ -209,6 +263,7 @@ export circuit link(
   start                 = disclose(start_in);
   expiry                = disclose(expiry_in);
   trigger_fired         = disclose(trigger_fired_in);
+  trigger_digest_v      = disclose(trigger_digest_in);
   settled_count         = 0;
   denied_count          = 0;
 }
@@ -234,20 +289,38 @@ export circuit settle(now: Uint<64>, submitted_nullifier: Bytes<32>): Bytes<32> 
   assert(disclose(nullifier == nullifier_pub), "INVALID_PROOF");
   assert(!spent_nullifiers.member(nullifier_pub), "NULLIFIER_SPENT");
 
-  // (3) Deterministic payout from PUBLIC terms — nobody, not even the
+  // (3) Trigger-evidence binding (Invariant I2): the claimant's private
+  //     evidence — re-ordered by nobody, reorderable by nobody — must
+  //     re-derive exactly the canonical trigger digest the POLICY instance
+  //     recorded when its registered oracles accepted the evidence.
+  const r1s = reading1_source();
+  const r2s = reading2_source();
+  const r1v = reading1_value();
+  const r2v = reading2_value();
+  const derived_trigger = trigger_digest_c(
+    policy_id,
+    trigger_fired,
+    observed_value(),
+    recorded_at(),
+    reading_digest_c(disclose(r1s), disclose(r1v)),
+    reading_digest_c(disclose(r2s), disclose(r2v)),
+  );
+  assert(disclose(derived_trigger == trigger_digest_v), "INVALID_PROOF");
+
+  // (4) Deterministic payout from PUBLIC terms — nobody, not even the
   //     claimant, chooses the amount. The amount itself stays private.
   const in_window_now = in_window_c(start, expiry, now_pub);
   const amount        = expected_payout_c(trigger_fired, in_window_now, payout);
   const settled       = amount > 0;
 
-  // (4) Proof digests: statement over public inputs, witness digest over the
+  // (5) Proof digests: statement over public inputs, witness digest over the
   //     private witness, proof hash binding both. Only the proof hash is
   //     disclosed — witness material never leaves the circuit.
   const statement = statement_digest_c(
     policy_id, terms_digest_v, nullifier_pub, trigger_fired, payout_commitment_c(amount)
   );
-  const reading1_digest = reading_digest_c(reading1_source(), reading1_value());
-  const reading2_digest = reading_digest_c(reading2_source(), reading2_value());
+  const reading1_digest = reading_digest_c(disclose(r1s), disclose(r1v));
+  const reading2_digest = reading_digest_c(disclose(r2s), disclose(r2v));
   const witness_digest  = witness_digest_c(
     policy_id, secret, amount, claim_time(), trigger_fired,
     observed_value(), recorded_at(), reading1_digest, reading2_digest
@@ -255,7 +328,7 @@ export circuit settle(now: Uint<64>, submitted_nullifier: Bytes<32>): Bytes<32> 
   const proof_hash = proof_hash_c(statement, witness_digest);
   const proof_hash_pub = disclose(proof_hash);
 
-  // (5) Effects: spend the nullifier exactly once, publish the receipt.
+  // (6) Effects: spend the nullifier exactly once, publish the receipt.
   //     Receipt fields are public: proof hash, status, timestamp — NO amount.
   spent_nullifiers.insert(nullifier_pub);
   if (settled) {

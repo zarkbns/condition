@@ -1,6 +1,6 @@
 pragma language_version >= 0.16 && <= 0.22;
 
-// Condition — policy contract (BUILD_SPEC.md §7.1).
+// Condition — policy contract (BUILD_SPEC.md §7.1), Wave-1 hardened.
 //
 // One instance per policy (Compact ledgers hold primitive state; per-policy
 // instances avoid unbounded state). All ledgers here are PUBLIC — policy
@@ -8,10 +8,30 @@ pragma language_version >= 0.16 && <= 0.22;
 // value stored is the enrollment commitment H_elig(policyId, secret), a
 // one-way digest unlinkable to identity.
 //
+// AUTHORIZATION MODEL (toolchain reality: compactc 0.30.0 has no caller
+// identity and no signature verification; cross-contract calls are not yet
+// supported — probed 2026-09-08). Every privileged transition is gated by a
+// CAPABILITY: a 32-byte high-entropy secret held client-side by its owner,
+// proven by a ZK check against a commitment registered on-chain:
+//   insurer    — insurer_auth    = H_auth(policyId, insurer_secret)
+//                gates create/withdraw/authorize/register_oracle
+//   oracles    — oracle_registry = Set of H_oracle(policyId, source, secret)
+//                gates record_trigger (two DISTINCT registered credentials)
+//   settlement — settle_auth_commit = H_settle(policyId, settlement_secret)
+//                registered by the insurer; gates mark_settled/mark_denied
+//   holder     — enrollment_commitment = H_elig(policyId, holder_secret)
+//                gates enroll (and, on the settlement instance, link/settle)
+// These are the same primitive the protocol already trusts for holder
+// eligibility: an unauthorized caller cannot produce a witness satisfying
+// the in-circuit assert without knowing the secret preimage.
+//
 // Enum codes (compact 0-based ordinals, mirrored by src/core/hashing.ts):
 //   TriggerType: TEMPERATURE=0, RAINFALL_MM=1, FLIGHT_DELAY_MIN=2, EARTHQUAKE_MAG=3
 //   ComparisonOp: GT=0, GTE=1, LT=2, LTE=3, EQ=4
 //   PolicyStatus: ACTIVE=0, TRIGGERED=1, SETTLING=2, SETTLED=3, DENIED=4, EXPIRED=5, CLOSED=6
+//   (settling is retained in the enum for serialization compatibility with
+//    the Wave-1 reference runtime; the on-chain machine goes
+//    ACTIVE → TRIGGERED → SETTLED|DENIED → CLOSED directly.)
 
 import CompactStandardLibrary;
 
@@ -22,6 +42,7 @@ export enum PolicyStatus  { active, triggered, settling, settled, denied, expire
 // Public state (the on-chain public ledger surface).
 export ledger created:             Boolean;
 export ledger insurer_key:         Bytes<32>;
+export ledger insurer_auth:        Bytes<32>;
 export ledger terms_digest_v:      Bytes<32>;
 export ledger trigger_type:        TriggerType;
 export ledger op:                  ComparisonOp;
@@ -33,22 +54,32 @@ export ledger expiry:              Uint<64>;
 export ledger funded:              Uint<64>;
 export ledger enrollment_commitment: Bytes<32>;
 export ledger enrolled:            Boolean;
+export ledger oracle_registry:     Set<Bytes<32>>;
+export ledger oracle_count:        Uint<64>;
+export ledger settle_auth_commit:  Bytes<32>;
 export ledger trigger_fired:       Boolean;
 export ledger trigger_recorded:    Boolean;
 export ledger trigger_value:       Uint<64>;
 export ledger trigger_source1:     Bytes<32>;
 export ledger trigger_source2:     Bytes<32>;
+export ledger trigger_digest_v:    Bytes<32>;
 export ledger status:              PolicyStatus;
 export ledger created_at:          Uint<64>;
 export ledger policy_id:           Bytes<32>;
 export ledger policy_nonce:        Uint<64>;
 
-// Private witness supplied by the holder's local witness provider.
-witness holder_secret(): Bytes<32>;
+// Private witnesses supplied by each party's local witness provider.
+// Every capability secret is generated client-side (>=128-bit entropy) and
+// never leaves the owner's device — only its commitment is disclosed.
+witness holder_secret():    Bytes<32>;
+witness insurer_secret():   Bytes<32>;
+witness oracle_secret1():   Bytes<32>;
+witness oracle_secret2():   Bytes<32>;
+witness settlement_secret(): Bytes<32>;
 
 // ---------------------------------------------------------------------------
 // Embedded canonical circuits (BUILD_SPEC §7.3 — self-contained contract;
-// proofs.compact exports the same definitions for standalone proving).
+// proofs.compact exports the shared definitions for standalone proving).
 // ---------------------------------------------------------------------------
 
 pure circuit bool_bytes32(b: Boolean): Bytes<32> {
@@ -102,6 +133,69 @@ pure circuit derive_nullifier_c(secret: Bytes<32>, policy_id_v: Bytes<32>): Byte
   ]);
 }
 
+// Capability commitments (domain-separated from eligibility/nullifier).
+pure circuit insurer_auth_c(policy_id_v: Bytes<32>, secret: Bytes<32>): Bytes<32> {
+  return persistentHash<Vector<3, Bytes<32>>>([
+    pad(32, "condition:auth:v1"),
+    policy_id_v,
+    secret,
+  ]);
+}
+
+pure circuit oracle_entry_c(
+  policy_id_v: Bytes<32>,
+  source_v: Bytes<32>,
+  secret: Bytes<32>,
+): Bytes<32> {
+  return persistentHash<Vector<4, Bytes<32>>>([
+    pad(32, "condition:oracle:v1"),
+    policy_id_v,
+    source_v,
+    secret,
+  ]);
+}
+
+pure circuit settle_auth_c(policy_id_v: Bytes<32>, secret: Bytes<32>): Bytes<32> {
+  return persistentHash<Vector<3, Bytes<32>>>([
+    pad(32, "condition:settle:v1"),
+    policy_id_v,
+    secret,
+  ]);
+}
+
+pure circuit reading_digest_c(source: Bytes<32>, value: Uint<64>): Bytes<32> {
+  return persistentHash<Vector<3, Bytes<32>>>([
+    pad(32, "condition:reading:v1"),
+    source,
+    scalar_bytes32(value),
+  ]);
+}
+
+// Canonical digest of the ACCEPTED trigger evidence — written once by
+// record_trigger, mirrored by the settlement instance, and re-derived there
+// from the claimant's private witnesses at settle time. Order-sensitive in
+// the recorded submission order (trigger_source1/source2): any substitution
+// or reordering of the evidence changes the digest and fails the settle
+// binding. Mirrors triggerDigestOf in src/core/hashing.ts.
+pure circuit trigger_digest_c(
+  policy_id_v: Bytes<32>,
+  outcome_v: Boolean,
+  observed_v: Uint<64>,
+  recorded_at_v: Uint<64>,
+  reading1_digest: Bytes<32>,
+  reading2_digest: Bytes<32>,
+): Bytes<32> {
+  return persistentHash<Vector<7, Bytes<32>>>([
+    pad(32, "condition:trigger:v1"),
+    policy_id_v,
+    bool_bytes32(outcome_v),
+    scalar_bytes32(observed_v),
+    scalar_bytes32(recorded_at_v),
+    reading1_digest,
+    reading2_digest,
+  ]);
+}
+
 export pure circuit expected_payout(trigger_fired_v: Boolean, in_window_v: Boolean, payout_v: Uint<64>): Uint<64> {
   if (trigger_fired_v && in_window_v) {
     return payout_v;
@@ -145,11 +239,24 @@ pure circuit min2(a: Uint<64>, b: Uint<64>): Uint<64> {
   }
 }
 
+// Capability checks (ledger-reading helpers; disclosed equality bits leak
+// only "the prover knows the capability secret" — the same class of leak a
+// successful settlement already publishes).
+circuit insurer_authorized(secret: Bytes<32>): Boolean {
+  return insurer_auth == insurer_auth_c(policy_id, secret);
+}
+
+circuit settlement_authorized(secret: Bytes<32>): Boolean {
+  return settle_auth_commit == settle_auth_c(policy_id, secret);
+}
+
 // ---------------------------------------------------------------------------
 // Circuits (contract entry points)
 // ---------------------------------------------------------------------------
 
 // Insurer initializes the policy. Every argument is disclosed (public).
+// The insurer's capability secret arrives as a private witness; only its
+// commitment is stored — withdraw/authorize/register_oracle all require it.
 export circuit create(
   insurer: Bytes<32>,
   trigger_type_v: TriggerType,
@@ -175,6 +282,7 @@ export circuit create(
 
   created            = true;
   insurer_key        = disclose(insurer);
+  insurer_auth       = disclose(insurer_auth_c(this_id, insurer_secret()));
   trigger_type       = disclose(trigger_type_v);
   op                 = disclose(op_v);
   threshold          = disclose(threshold_v);
@@ -196,7 +304,8 @@ export circuit create(
   return disclose(this_id);
 }
 
-// Disclosed funding — public escrow total.
+// Disclosed funding — public escrow total. Permissionless by design: adding
+// to escrow harms no one and the payout is fixed by public terms.
 export circuit fund(amount: Uint<64>): [] {
   assert(amount > 0, "INSUFFICIENT_FUNDING");
   assert(status == PolicyStatus.active || status == PolicyStatus.triggered, "POLICY_INACTIVE");
@@ -221,82 +330,156 @@ export circuit enroll(premium_paid: Uint<64>): Bytes<32> {
   return disclose(commitment);
 }
 
-// Trigger recording: two distinct source digests with AGREEING outcome are
-// required (fail-closed on conflict). Readings and outcome are public —
-// verifiable fairness of the trigger.
+// Oracle registration — insurer-gated. Each Wave-1 policy registers exactly
+// two oracle credentials, each bound to ONE source digest and ONE secret.
+// The registry is instance-scoped, so a credential (or its secret) registered
+// for another policy can never satisfy this one (no cross-policy
+// substitution). Duplicate registration of the same credential fails on the
+// Set membership; registration caps at two.
+export circuit register_oracle1(source: Bytes<32>): [] {
+  assert(created, "POLICY_NOT_FOUND");
+  assert(status == PolicyStatus.active, "POLICY_INACTIVE");
+  assert(disclose(insurer_authorized(insurer_secret())), "UNAUTHORIZED");
+  assert(oracle_count < 2, "TRIGGER_INSUFFICIENT_SOURCES");
+
+  const entry = oracle_entry_c(policy_id, disclose(source), oracle_secret1());
+  assert(!oracle_registry.member(disclose(entry)), "ALREADY_ENROLLED");
+  oracle_registry.insert(disclose(entry));
+  oracle_count = (oracle_count + 1) as Uint<64>;
+}
+
+export circuit register_oracle2(source: Bytes<32>): [] {
+  assert(created, "POLICY_NOT_FOUND");
+  assert(status == PolicyStatus.active, "POLICY_INACTIVE");
+  assert(disclose(insurer_authorized(insurer_secret())), "UNAUTHORIZED");
+  assert(oracle_count < 2, "TRIGGER_INSUFFICIENT_SOURCES");
+
+  const entry = oracle_entry_c(policy_id, disclose(source), oracle_secret2());
+  assert(!oracle_registry.member(disclose(entry)), "ALREADY_ENROLLED");
+  oracle_registry.insert(disclose(entry));
+  oracle_count = (oracle_count + 1) as Uint<64>;
+}
+
+// Trigger recording: two DISTINCT sources backed by two DISTINCT registered
+// oracle credentials (the submitter must KNOW both secrets) with AGREEING
+// outcome (fail-closed on conflict). Readings and outcome are public —
+// verifiable fairness of the trigger. The accepted evidence is bound into
+// the canonical trigger_digest_v: later substitution, reordering, or
+// cross-policy reuse changes the digest and cannot settle.
 export circuit record_trigger(
   value1: Uint<64>,
   value2: Uint<64>,
   source1: Bytes<32>,
   source2: Bytes<32>,
+  recorded_at: Uint<64>,
 ): [] {
   assert(status == PolicyStatus.active, "POLICY_INACTIVE");
   assert(source1 != source2, "TRIGGER_INSUFFICIENT_SOURCES");
+
+  const s1 = disclose(source1);
+  const s2 = disclose(source2);
+  const secret1 = oracle_secret1();
+  const secret2 = oracle_secret2();
+  assert(disclose(secret1 != secret2), "TRIGGER_INSUFFICIENT_SOURCES");
+
+  const entry1 = oracle_entry_c(policy_id, s1, secret1);
+  const entry2 = oracle_entry_c(policy_id, s2, secret2);
+  assert(oracle_registry.member(disclose(entry1)), "UNAUTHORIZED");
+  assert(oracle_registry.member(disclose(entry2)), "UNAUTHORIZED");
 
   const outcome1 = compare(value1, threshold, op);
   const outcome2 = compare(value2, threshold, op);
   assert(outcome1 == outcome2, "TRIGGER_CONFLICT");
 
+  const v1 = disclose(value1);
+  const v2 = disclose(value2);
+  const at = disclose(recorded_at);
+
   // Lower median of the two agreeing readings (division-free; Compact has
   // no integer division). Mirrors medianOf in the TS reference runtime.
-  trigger_fired   = disclose(outcome1);
-  trigger_recorded = true;
-  trigger_value   = disclose(min2(value1, value2));
-  trigger_source1 = disclose(source1);
-  trigger_source2 = disclose(source2);
-  status          = PolicyStatus.triggered;
+  trigger_fired     = disclose(outcome1);
+  trigger_recorded  = true;
+  trigger_value     = disclose(min2(v1, v2));
+  trigger_source1   = s1;
+  trigger_source2   = s2;
+  trigger_digest_v  = disclose(trigger_digest_c(
+    policy_id,
+    outcome1,
+    min2(v1, v2),
+    at,
+    reading_digest_c(s1, v1),
+    reading_digest_c(s2, v2),
+  ));
+  status            = PolicyStatus.triggered;
 }
 
-// Settlement signals the transition to SETTLING (called by the settlement
-// instance's flow; the policy instance is the source of truth for terms).
-export circuit begin_settling(): [] {
+// The insurer authorizes ONE settlement instance (by its capability
+// commitment) to finalize this policy's state. Called before the settlement
+// flow runs; the settlement's own private settle() still enforces every
+// eligibility/nullifier/payout check.
+export circuit authorize_settlement(): [] {
   assert(status == PolicyStatus.triggered, "POLICY_INACTIVE");
+  assert(disclose(insurer_authorized(insurer_secret())), "UNAUTHORIZED");
+  assert(settle_auth_commit == bool_bytes32(false), "ALREADY_CREATED");
+
+  settle_auth_commit = disclose(settle_auth_c(policy_id, settlement_secret()));
+}
+
+// Finalization — settlement-capability-gated (Invariants I4). Only the
+// authorized settlement flow can move the policy to its terminal settled or
+// denied state, so an outside party can no longer brick a claimant's settle
+// by calling these first, and the insurer cannot finalize unilaterally
+// (both capabilities are required to drain escrow).
+// Compact forbids branching on a private argument, so the two outcomes are
+// separate entry points; the receipt status is public data anyway.
+export circuit mark_settled(): [] {
+  assert(status == PolicyStatus.triggered, "POLICY_INACTIVE");
+  assert(disclose(settlement_authorized(settlement_secret())), "UNAUTHORIZED");
   assert(enrolled, "NOT_ENROLLED");
   assert(trigger_recorded, "TRIGGER_NOT_RECORDED");
-  status = PolicyStatus.settling;
+  status = PolicyStatus.settled;
+}
+
+export circuit mark_denied(): [] {
+  assert(status == PolicyStatus.triggered, "POLICY_INACTIVE");
+  assert(disclose(settlement_authorized(settlement_secret())), "UNAUTHORIZED");
+  assert(enrolled, "NOT_ENROLLED");
+  assert(trigger_recorded, "TRIGGER_NOT_RECORDED");
+  status = PolicyStatus.denied;
 }
 
 // Lazy expiry: flips any pre-terminal policy past its window to EXPIRED.
+// Permissionless by design: it can only fire after real expiry (a public
+// fact), extracts no value, and lets anyone close out dead policies.
 export circuit expire(now: Uint<64>): [] {
   assert(
-    status == PolicyStatus.active || status == PolicyStatus.triggered || status == PolicyStatus.settling,
+    status == PolicyStatus.active || status == PolicyStatus.triggered,
     "POLICY_INACTIVE"
   );
   assert(now > expiry, "EXPIRY_REQUIRED");
   status = PolicyStatus.expired;
 }
 
-// Mark settled/denied from the settlement instance after receipt publication.
-// Two branch-free entry points instead of one boolean-parametrized circuit:
-// Compact forbids branching on a private argument (implicit disclosure), and
-// the receipt status is public data anyway.
-export circuit mark_settled(): [] {
-  assert(status == PolicyStatus.settling, "POLICY_INACTIVE");
-  status = PolicyStatus.settled;
-}
-
-export circuit mark_denied(): [] {
-  assert(status == PolicyStatus.settling, "POLICY_INACTIVE");
-  status = PolicyStatus.denied;
-}
-
 // Insurer withdrawal of the unclaimed escrow remainder after terminal state.
-// The paid-out amount is derivable from public terms — leaks nothing.
+// Insurer-capability-gated (Invariant I3). The paid-out amount is derivable
+// from public terms — leaks nothing. The paid clamp keeps the subtraction
+// in range when a settlement completed against insufficient escrow.
 export circuit withdraw(): Uint<64> {
+  assert(disclose(insurer_authorized(insurer_secret())), "UNAUTHORIZED");
   assert(
     status == PolicyStatus.settled || status == PolicyStatus.denied || status == PolicyStatus.expired,
     "EXPIRY_REQUIRED"
   );
-  if (status == PolicyStatus.settled) {
+  if (status == PolicyStatus.settled && funded >= payout) {
     const remainder = (funded - payout) as Uint<64>;
     funded = 0;
     status = PolicyStatus.closed;
     return remainder;
   } else {
-    const remainder = funded;
+    const rest = funded;
     funded = 0;
     status = PolicyStatus.closed;
-    return remainder;
+    return rest;
   }
 }
 

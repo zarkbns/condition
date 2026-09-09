@@ -150,3 +150,76 @@ export pure circuit statement_digest(
     payout_commitment_v,
   ]);
 }
+
+// ---------------------------------------------------------------------------
+// Authorization + trigger-evidence capability digests (Wave-1 hardening,
+// 2026-09-08). The toolchain has no caller-identity primitive, so every
+// privileged transition is gated by knowledge of a capability secret checked
+// against an on-chain commitment — the same primitive as holder eligibility.
+// ---------------------------------------------------------------------------
+
+// Insurer capability: gates withdraw/authorize/register_oracle.
+export pure circuit insurer_auth(policy_id: Bytes<32>, secret: Bytes<32>): Bytes<32> {
+  return persistentHash<Vector<3, Bytes<32>>>([
+    pad(32, "condition:auth:v1"),
+    policy_id,
+    secret,
+  ]);
+}
+
+// Oracle credential entry: registered per (policy, source, secret) by the
+// insurer; record_trigger requires two DISTINCT registered entries.
+export pure circuit oracle_entry(
+  policy_id: Bytes<32>,
+  source: Bytes<32>,
+  secret: Bytes<32>,
+): Bytes<32> {
+  return persistentHash<Vector<4, Bytes<32>>>([
+    pad(32, "condition:oracle:v1"),
+    policy_id,
+    source,
+    secret,
+  ]);
+}
+
+// Settlement capability: registered by the insurer (authorize_settlement);
+// gates the policy's terminal mark_settled/mark_denied transitions.
+export pure circuit settle_auth(policy_id: Bytes<32>, secret: Bytes<32>): Bytes<32> {
+  return persistentHash<Vector<3, Bytes<32>>>([
+    pad(32, "condition:settle:v1"),
+    policy_id,
+    secret,
+  ]);
+}
+
+// Reading digest — canonical sort/binding key for trigger evidence.
+export pure circuit reading_digest(source: Bytes<32>, value: Uint<64>): Bytes<32> {
+  return persistentHash<Vector<3, Bytes<32>>>([
+    pad(32, "condition:reading:v1"),
+    source,
+    (value as Field) as Bytes<32>,
+  ]);
+}
+
+// Canonical digest of ACCEPTED trigger evidence — recorded by the policy
+// instance's authorized oracles, mirrored into the settlement instance, and
+// re-derived from the claimant's private witnesses at settle time. Order-
+// sensitive in the recorded submission order.
+export pure circuit trigger_digest(
+  policy_id: Bytes<32>,
+  outcome: Boolean,
+  observed: Uint<64>,
+  recorded_at: Uint<64>,
+  reading1_digest: Bytes<32>,
+  reading2_digest: Bytes<32>,
+): Bytes<32> {
+  return persistentHash<Vector<7, Bytes<32>>>([
+    pad(32, "condition:trigger:v1"),
+    policy_id,
+    bool_bytes32(outcome),
+    scalar_bytes32(observed),
+    scalar_bytes32(recorded_at),
+    reading1_digest,
+    reading2_digest,
+  ]);
+}
