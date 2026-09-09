@@ -69,6 +69,7 @@ export function createLocalAsyncRuntime(): LocalAsyncRuntime {
     triggerService,
     settlementService,
     publicLedger: runtime.publicLedger,
+    capabilityFor: (policyId) => runtime.publicLedger.capabilityFor(policyId),
     refresh: async () => {
       // Local in-memory ledger — nothing to sync.
     },

@@ -36,9 +36,12 @@ function seedLedger() {
   runtime.policyService.publishEnrollment(policy.policyId, commitment, 100_000_000n, now);
   runtime.triggerService.registerSource('open-meteo');
   runtime.triggerService.registerSource('noaa');
+  const caps = runtime.publicLedger.capabilityFor(policy.policyId);
+  runtime.triggerService.registerOracle(policy.policyId, 'open-meteo', caps.oracleSecrets[0]!, now);
+  runtime.triggerService.registerOracle(policy.policyId, 'noaa', caps.oracleSecrets[1]!, now);
   runtime.triggerService.submitReadings(policy.policyId, [
-    { source: 'open-meteo', value: 4000 },
-    { source: 'noaa', value: 3600 },
+    { source: 'open-meteo', value: 4000, oracleSecret: caps.oracleSecrets[0]! },
+    { source: 'noaa', value: 3600, oracleSecret: caps.oracleSecrets[1]! },
   ], now);
   return { runtime, insurer, policyId: policy.policyId };
 }
@@ -70,6 +73,8 @@ describe('ReceiptPage', () => {
     const t = Math.floor(Date.now() / 1000);
     const policy = runtime.publicLedger.listPolicies()[0]!;
     const proof = runtime.claimService.submitClaim(policy.policyId, t);
+    // The insurer authorizes the settlement instance (v2 capability gate).
+    runtime.publicLedger.authorizeSettlement(policy.policyId, t);
     const { receipt } = runtime.settlementService.settle(
       t, proof, policy.policyId,
       () => ({

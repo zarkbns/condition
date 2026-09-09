@@ -16,7 +16,7 @@
 // (Invariant 2) — witness values arrive via local WitnessProviders in both
 // modes.
 
-import type { Policy, PolicyTerms, Receipt, ClaimProof, TriggerRecord, WitnessProvider, CapabilitySecret } from '../types/index.js';
+import type { Policy, PolicyCapabilities, PolicyTerms, Receipt, ClaimProof, TriggerRecord, WitnessProvider, CapabilitySecret } from '../types/index.js';
 import type { Address, Bytes32, Dust } from '../types/index.js';
 
 export interface AsyncPolicyService {
@@ -94,6 +94,13 @@ export interface AsyncConditionRuntime {
   claimService: AsyncClaimService;
   triggerService: AsyncTriggerService;
   settlementService: AsyncSettlementService;
+  /**
+   * The session's own Wave-1 capability secrets for a policy (insurer /
+   * settlement / oracle credentials). Generated client-side at create,
+   * consumed by the local mirror's checks and the on-chain witnesses;
+   * never public data.
+   */
+  capabilityFor(policyId: Bytes32): PolicyCapabilities;
   /** Re-read public state (indexer or local ledger). */
   refresh(): Promise<void>;
   /**

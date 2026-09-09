@@ -59,6 +59,12 @@ export default function ClaimPage() {
       if (!runtime) return;
       await runtime.triggerService.registerSource('open-meteo');
       await runtime.triggerService.registerSource('noaa');
+      // Insurer-gated oracle credential registration, then the trigger with
+      // the session's own credentials (the commitments are what the circuits
+      // check on-chain; the secrets stay client-side).
+      const caps = runtime.capabilityFor(policyId);
+      await runtime.triggerService.registerOracle(policyId, 'open-meteo', caps.oracleSecrets[0]!, now());
+      await runtime.triggerService.registerOracle(policyId, 'noaa', caps.oracleSecrets[1]!, now());
       const row = await runtime.policyService.getPolicy(policyId);
       const fires =
         row.terms.operator === 'GT' || row.terms.operator === 'GTE'
@@ -67,8 +73,8 @@ export default function ClaimPage() {
       await runtime.triggerService.submitReadings(
         policyId,
         [
-          { source: 'open-meteo', value: fires },
-          { source: 'noaa', value: fires - 50 },
+          { source: 'open-meteo', value: fires, oracleSecret: caps.oracleSecrets[0]! },
+          { source: 'noaa', value: fires - 50, oracleSecret: caps.oracleSecrets[1]! },
         ],
         now(),
       );
