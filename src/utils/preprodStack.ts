@@ -208,9 +208,17 @@ function withTimeout<T>(p: Promise<T>, ms: number, message: string): Promise<T> 
 
 // Witness names per contract (from the generated index.d.ts). Deploy only
 // runs constructors; these throwing stubs satisfy ctor validation without
-// binding any real witness providers.
+// binding any real witness providers. MUST stay in lockstep with the
+// witness declarations in contracts/*.compact (v2 adds the capability
+// witnesses — insurer/oracle/settlement secrets on policy).
 const DEPLOY_WITNESSES: Record<'policy' | 'settlement', string[]> = {
-  policy: ['holder_secret'],
+  policy: [
+    'holder_secret',
+    'insurer_secret',
+    'oracle_secret1',
+    'oracle_secret2',
+    'settlement_secret',
+  ],
   settlement: [
     'holder_secret',
     'claim_time',

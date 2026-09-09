@@ -5,13 +5,23 @@
 // against the in-memory ledgers (the executable spec). It exists so the
 // pages can use ONE async interface regardless of which backing layer is
 // active — local reference runtime or real Preprod contracts.
+//
+// publicLedger is exposed so the Preprod runtime (and tests) can reach the
+// session's own capability secrets — the reference layer of the SAME
+// credential set the on-chain witnesses consume.
 
 import { createRuntime } from './midnight.js';
+import type { PublicLedger } from '../core/publicLedger.js';
 import type { AsyncConditionRuntime } from './asyncRuntime.js';
 import type { ClaimProof, TriggerRecord, WitnessProvider } from '../types/index.js';
 import type { Address, Bytes32, Dust, Policy, PolicyTerms, Receipt } from '../types/index.js';
 
-export function createLocalAsyncRuntime(): AsyncConditionRuntime {
+export interface LocalAsyncRuntime extends AsyncConditionRuntime {
+  /** The underlying reference public ledger (capabilities, audit view). */
+  readonly publicLedger: PublicLedger;
+}
+
+export function createLocalAsyncRuntime(): LocalAsyncRuntime {
   const runtime = createRuntime({ appName: 'Condition' });
 
   const policyService: AsyncConditionRuntime['policyService'] = {
@@ -36,8 +46,11 @@ export function createLocalAsyncRuntime(): AsyncConditionRuntime {
     registerSource: async (name) => {
       runtime.triggerService.registerSource(name);
     },
-    submitReadings: async (policyId, readings, now) =>
-      runtime.triggerService.submitReadings(policyId, readings, now),
+    registerOracle: async (policyId, source, oracleSecret, now) => {
+      runtime.triggerService.registerOracle(policyId, source, oracleSecret, now);
+    },
+    submitReadings: async (policyId, submissions, now) =>
+      runtime.triggerService.submitReadings(policyId, submissions, now),
   };
 
   const settlementService: AsyncConditionRuntime['settlementService'] = {
@@ -55,6 +68,7 @@ export function createLocalAsyncRuntime(): AsyncConditionRuntime {
     claimService,
     triggerService,
     settlementService,
+    publicLedger: runtime.publicLedger,
     refresh: async () => {
       // Local in-memory ledger — nothing to sync.
     },

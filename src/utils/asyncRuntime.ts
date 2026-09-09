@@ -16,7 +16,7 @@
 // (Invariant 2) — witness values arrive via local WitnessProviders in both
 // modes.
 
-import type { Policy, PolicyTerms, Receipt, ClaimProof, TriggerRecord, WitnessProvider } from '../types/index.js';
+import type { Policy, PolicyTerms, Receipt, ClaimProof, TriggerRecord, WitnessProvider, CapabilitySecret } from '../types/index.js';
 import type { Address, Bytes32, Dust } from '../types/index.js';
 
 export interface AsyncPolicyService {
@@ -39,9 +39,16 @@ export interface AsyncClaimService {
 
 export interface AsyncTriggerService {
   registerSource(name: string): Promise<void>;
+  /** Insurer-gated: binds (policyId, sourceId, oracleSecret) in the registry. */
+  registerOracle(
+    policyId: Bytes32,
+    source: string,
+    oracleSecret: CapabilitySecret,
+    now: number,
+  ): Promise<void>;
   submitReadings(
     policyId: Bytes32,
-    readings: Array<{ source: string; value: number }>,
+    submissions: Array<{ source: string; value: number; oracleSecret: CapabilitySecret }>,
     now: number,
   ): Promise<TriggerRecord>;
 }
@@ -64,7 +71,14 @@ export interface AsyncSettlementService {
  * reference runtime records nothing here (no chain to submit to).
  */
 export interface TxRecord {
-  action: 'create' | 'fund' | 'enroll' | 'record_trigger' | 'settle';
+  action:
+    | 'create'
+    | 'fund'
+    | 'enroll'
+    | 'register_oracle'
+    | 'authorize_settlement'
+    | 'record_trigger'
+    | 'settle';
   policyId: Bytes32;
   /** Midnight transaction hash when submitted on-chain. */
   txHash?: string;

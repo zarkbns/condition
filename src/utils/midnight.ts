@@ -23,14 +23,7 @@ export interface ConditionRuntime {
   settlementService: SettlementService;
 }
 
-export interface RuntimeConfig {
-  /** Midnight node/indexer URL when running against a network. */
-  nodeUrl?: string;
-  /** App identity for the frontend. */
-  appName?: string;
-}
-
-export function createRuntime(_config: RuntimeConfig = {}): ConditionRuntime {
+export function createRuntime(_config?: unknown): ConditionRuntime {
   // In the reference runtime the config is intentionally unused beyond
   // documentation: there is no server hop, and the reference runtime never
   // contacts a node. A network-backed context replaces the ledger
@@ -48,12 +41,5 @@ export function createRuntime(_config: RuntimeConfig = {}): ConditionRuntime {
     triggerService,
     claimService,
     settlementService,
-  };
-}
-
-export function runtimeConfigFromEnv(env: Record<string, string | undefined>): RuntimeConfig {
-  return {
-    nodeUrl: env['MIDNIGHT_NODE_URL'],
-    appName: env['NEXT_PUBLIC_APP_NAME'] ?? 'Condition',
   };
 }

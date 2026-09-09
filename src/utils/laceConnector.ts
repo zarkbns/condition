@@ -63,10 +63,18 @@ export interface BrowserStackOptions {
 }
 
 // Witness names per contract — MUST stay in lockstep with DEPLOY_WITNESSES
-// in preprodStack.ts (the CLI live-verified reference). Duplicated here so
-// the browser bundle never imports the Node-only module.
+// in preprodStack.ts (the CLI live-verified reference) and with the witness
+// declarations in contracts/*.compact. Duplicated here so the browser bundle
+// never imports the Node-only module. v2 adds the capability witnesses
+// (insurer/oracle/settlement secrets) on the policy contract.
 const DEPLOY_WITNESSES: Record<'policy' | 'settlement', string[]> = {
-  policy: ['holder_secret'],
+  policy: [
+    'holder_secret',
+    'insurer_secret',
+    'oracle_secret1',
+    'oracle_secret2',
+    'settlement_secret',
+  ],
   settlement: [
     'holder_secret',
     'claim_time',

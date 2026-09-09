@@ -36,14 +36,16 @@
 //   CLI (seed-based): the facade live stack in preprodStack.ts (unchanged).
 
 import { createLocalAsyncRuntime } from './localAsyncRuntime.js';
+import type { LocalAsyncRuntime } from './localAsyncRuntime.js';
 import {
   randomAddress,
+  randomSecret,
   sourceIdDigest,
   hexToBytes,
   nullifierOf,
   triggerTypeCode,
   comparisonOpCode,
-  readingDigestOf,
+  canonicalReadings,
 } from '../core/hashing.js';
 import { PrivateLedger } from '../core/privateLedger.js';
 // Type-only: preprodStack statically imports node:buffer and must never
@@ -66,6 +68,7 @@ import type {
   ClaimWitness,
   Dust,
   Policy,
+  PolicyCapabilities,
   PolicyTerms,
   Receipt,
   ClaimProof,
@@ -451,6 +454,34 @@ export class PreprodOnChainClient {
   /** Holder secrets keyed by policyId — client-side only (Invariant 2). */
   private readonly holderSecrets = new Map<Bytes32, Bytes32>();
 
+  /**
+   * Capability secrets (Wave-1 authorization) keyed by policyId — the
+   * insurer/settlement/oracle credentials this client owns, consumed by
+   * witness closures at circuit-execution time only (same privacy class as
+   * holder secrets; never serialized, logged, or sent anywhere).
+   */
+  private readonly capabilitySecrets = new Map<Bytes32, PolicyCapabilities>();
+
+  /** Register the local capability set for a policy (insurer client side). */
+  registerCapabilitySecrets(policyId: Bytes32, caps: PolicyCapabilities): void {
+    this.capabilitySecrets.set(policyId, caps);
+  }
+
+  private capabilityFor(policyId: Bytes32): PolicyCapabilities {
+    const caps = this.capabilitySecrets.get(policyId);
+    if (!caps) {
+      throw new PreprodUnavailableError(
+        'wallet',
+        `no local capability secrets for ${policyId} — create the policy from this client first`,
+      );
+    }
+    return caps;
+  }
+
+  private requireCapabilitySecret(role: 'insurer' | 'settlement', policyId: Bytes32): Bytes32 {
+    return this.capabilityFor(policyId)[role === 'insurer' ? 'insurerSecret' : 'settlementSecret'];
+  }
+
   /** Register the local holder secret for a policy (from claimService.enroll). */
   registerHolderSecret(policyId: Bytes32, secret: Bytes32): void {
     this.holderSecrets.set(policyId, secret);
@@ -499,17 +530,26 @@ export class PreprodOnChainClient {
    * pins this with a parity check. Enum arguments are the 0-based ordinals
    * shared with triggerTypeCode/comparisonOpCode (the generated circuits
    * type-check plain numbers).
+   *
+   * Wave-1 authorization: create() consumes the insurer capability secret
+   * as a PRIVATE witness — only its commitment (insurer_auth) lands in the
+   * ledger. The secret is supplied via registerCapabilitySecret and kept
+   * client-side for withdraw/authorize/register_oracle.
    */
   async createPolicyOnChain(
     insurer: Address,
     terms: PolicyTerms,
     now: number,
     nonce: number,
+    caps: PolicyCapabilities,
   ): Promise<{ policyId: Bytes32; contractAddress: string; txHash: string }> {
     const stack = this.requireStack();
+    // The caller (runtime) supplies the SAME capability set the local
+    // reference ledger generated — one credential set across layers.
+    const insurerSecret = caps.insurerSecret;
 
     // One policy instance per policy; the create() args are fully public
-    // (policy transparency — Invariant 5).
+    // (policy transparency — Invariant 5) — the capability secret is not.
     const { address } = await stack.deployContract('policy');
     const call = await stack.callCircuit('policy', {
       circuitId: 'create',
@@ -526,10 +566,13 @@ export class PreprodOnChainClient {
         BigInt(now),
         BigInt(nonce),
       ],
-      witnesses: {},
+      witnesses: {
+        insurer_secret: () => [undefined, hexToBytes(insurerSecret)],
+      },
     });
     const policyId = bytesToHex32(call.result);
     this.policyContracts.set(policyId, address);
+    this.capabilitySecrets.set(policyId, caps);
     this.record('create', policyId, call.txHash, now, address);
     return { policyId, contractAddress: address, txHash: call.txHash };
   }
@@ -584,7 +627,95 @@ export class PreprodOnChainClient {
     return { txHash: call.txHash, commitment };
   }
 
-  /** Call record_trigger(value1, value2, source1, source2) on-chain. */
+  /**
+   * Call register_oracle1/2 on-chain (insurer-gated): binds each oracle
+   * credential — (policyId, sourceId, secret) — into the policy's registry.
+   * The credential secrets stay client-side (witness closures only).
+   */
+  async registerOracleOnChain(
+    policyId: Bytes32,
+    slot: 1 | 2,
+    sourceId: Bytes32,
+    now: number,
+  ): Promise<{ txHash: string; oracleEntry: Bytes32 }> {
+    const stack = this.requireStack();
+    const address = this.policyContracts.get(policyId);
+    if (!address) {
+      throw new PreprodUnavailableError('network', `no deployed policy for ${policyId}`);
+    }
+    const caps = this.capabilityFor(policyId);
+    const call = await stack.callCircuit('policy', {
+      circuitId: slot === 1 ? 'register_oracle1' : 'register_oracle2',
+      contractAddress: address,
+      args: [hexToBytes(sourceId)],
+      witnesses: {
+        insurer_secret: () => [undefined, hexToBytes(caps.insurerSecret)],
+        oracle_secret1: () => [undefined, hexToBytes(caps.oracleSecrets[0]!)],
+        oracle_secret2: () => [undefined, hexToBytes(caps.oracleSecrets[1]!)],
+      },
+    });
+    const oracleEntry = bytesToHex32(call.result as Uint8Array);
+    this.record('register_oracle', policyId, call.txHash, now, address);
+    return { txHash: call.txHash, oracleEntry };
+  }
+
+  /**
+   * Authorize exactly one settlement instance on-chain (insurer-gated):
+   * registers H_settle(policyId, settlementSecret); the settlement flow's
+   * mark_settled/mark_denied later consume the same secret.
+   */
+  async authorizeSettlementOnChain(policyId: Bytes32, now: number): Promise<{ txHash: string }> {
+    const stack = this.requireStack();
+    const address = this.policyContracts.get(policyId);
+    if (!address) {
+      throw new PreprodUnavailableError('network', `no deployed policy for ${policyId}`);
+    }
+    const caps = this.capabilityFor(policyId);
+    const call = await stack.callCircuit('policy', {
+      circuitId: 'authorize_settlement',
+      contractAddress: address,
+      args: [],
+      witnesses: {
+        insurer_secret: () => [undefined, hexToBytes(caps.insurerSecret)],
+        settlement_secret: () => [undefined, hexToBytes(caps.settlementSecret)],
+      },
+    });
+    this.record('authorize_settlement', policyId, call.txHash, now, address);
+    return { txHash: call.txHash };
+  }
+
+  /**
+   * Finalize the policy on-chain — settlement-capability-gated
+   * (mark_settled / mark_denied, both TRIGGERED-only). Called by the
+   * authorized settlement flow after settle().
+   */
+  async markSettledOnChain(policyId: Bytes32, settled: boolean, now: number): Promise<{ txHash: string }> {
+    const stack = this.requireStack();
+    const address = this.policyContracts.get(policyId);
+    if (!address) {
+      throw new PreprodUnavailableError('network', `no deployed policy for ${policyId}`);
+    }
+    const caps = this.capabilityFor(policyId);
+    const call = await stack.callCircuit('policy', {
+      circuitId: settled ? 'mark_settled' : 'mark_denied',
+      contractAddress: address,
+      args: [],
+      witnesses: {
+        insurer_secret: () => [undefined, hexToBytes(caps.insurerSecret)],
+        settlement_secret: () => [undefined, hexToBytes(caps.settlementSecret)],
+        oracle_secret1: () => [undefined, hexToBytes(caps.oracleSecrets[0]!)],
+        oracle_secret2: () => [undefined, hexToBytes(caps.oracleSecrets[1]!)],
+      },
+    });
+    this.record('authorize_settlement', policyId, call.txHash, now, address);
+    return { txHash: call.txHash };
+  }
+
+  /**
+   * Call record_trigger(value1, value2, source1, source2, recorded_at) with
+   * the two REGISTERED oracle credentials as private witnesses. The accepted
+   * evidence is bound into the on-chain canonical trigger digest.
+   */
   async recordTriggerOnChain(
     policyId: Bytes32,
     value1: number,
@@ -598,15 +729,27 @@ export class PreprodOnChainClient {
     if (!address) {
       throw new PreprodUnavailableError('network', `no deployed policy for ${policyId}`);
     }
+    const caps = this.capabilityFor(policyId);
     const call = await stack.callCircuit('policy', {
       circuitId: 'record_trigger',
       contractAddress: address,
       // Readings and outcome are public — verifiable fairness of the
-      // trigger (Invariant 5); no claimant data involved.
-      args: [BigInt(value1), BigInt(value2), hexToBytes(source1), hexToBytes(source2)],
-      witnesses: {},
+      // trigger (Invariant 5); no claimant data involved. The oracle
+      // credential secrets are private witnesses.
+      args: [
+        BigInt(value1),
+        BigInt(value2),
+        hexToBytes(source1),
+        hexToBytes(source2),
+        BigInt(now),
+      ],
+      witnesses: {
+        insurer_secret: () => [undefined, hexToBytes(caps.insurerSecret)],
+        oracle_secret1: () => [undefined, hexToBytes(caps.oracleSecrets[0]!)],
+        oracle_secret2: () => [undefined, hexToBytes(caps.oracleSecrets[1]!)],
+      },
     });
-    this.record('record_trigger', policyId, call.txHash, now);
+    this.record('record_trigger', policyId, call.txHash, now, address);
     return { txHash: call.txHash };
   }
 
@@ -637,7 +780,11 @@ export class PreprodOnChainClient {
     }
 
     // link() mirrors the policy instance's public facts into the fresh
-    // settlement instance — read straight from the policy ledger.
+    // settlement instance — read straight from the policy ledger — and the
+    // LINK is holder-capability-gated (v2): the caller proves knowledge of
+    // the enrolled holder secret; a copied fact set cannot be bound by
+    // anyone else. trigger_digest (the policy's canonical evidence digest)
+    // is copied too and re-checked inside settle().
     const policyLedgerState = await stack.readLedger('policy', policyAddress);
     const linkArgs = [
       policyLedgerState['policy_id'],
@@ -647,6 +794,7 @@ export class PreprodOnChainClient {
       policyLedgerState['start'],
       policyLedgerState['expiry'],
       policyLedgerState['trigger_fired'],
+      policyLedgerState['trigger_digest_v'],
     ];
 
     const { address } = await stack.deployContract('settlement');
@@ -654,15 +802,18 @@ export class PreprodOnChainClient {
       circuitId: 'link',
       contractAddress: address,
       args: linkArgs,
-      witnesses: {},
+      witnesses: {
+        holder_secret: () => [undefined, hexToBytes(secret)],
+      },
     });
 
     // settle(): the nullifier is derived locally (nullifierOf — same domain
     // tag and field order as the in-circuit derive_nullifier_c) and
     // submitted as the public spent-registry key; the secret itself stays
-    // in the witness closure. Readings are canonicalized digest-ascending
-    // so the in-circuit witness digest hashes the same preimage as
-    // witnessDigestOf (the compactParity pins).
+    // in the witness closure. Readings are canonicalized value-ascending
+    // (ties by submission order) so the in-circuit witness digest and the
+    // re-derived trigger digest hash the same preimages as witnessDigestOf /
+    // triggerDigestOf (the compactParity pins).
     const evidence = witness.triggerEvidence;
     if (evidence.readings.length < 2) {
       throw new PreprodUnavailableError(
@@ -670,12 +821,7 @@ export class PreprodOnChainClient {
         `settle witness needs >= 2 trigger readings, got ${evidence.readings.length}`,
       );
     }
-    const [reading1, reading2] = [...evidence.readings]
-      .sort((a, b) => {
-        const da = readingDigestOf(a.sourceId, a.value);
-        const db = readingDigestOf(b.sourceId, b.value);
-        return da < db ? -1 : da > db ? 1 : 0;
-      });
+    const { first: reading1, second: reading2 } = canonicalReadings(evidence.readings);
     const nullifier = nullifierOf(policyId, secret);
     const settleCall = await stack.callCircuit('settlement', {
       circuitId: 'settle',
@@ -709,7 +855,7 @@ export class PreprodOnChainClient {
 // ---------------------------------------------------------------------------
 
 export class PreprodConditionRuntime implements AsyncConditionRuntime {
-  private readonly local: AsyncConditionRuntime;
+  private readonly local: LocalAsyncRuntime;
   private readonly onChainClient_: PreprodOnChainClient;
   private readonly privateLedger_: PrivateLedger;
   /**
@@ -769,6 +915,16 @@ export class PreprodConditionRuntime implements AsyncConditionRuntime {
   get mode(): NetworkMode { return this._mode; }
   get privateLedger(): PrivateLedger { return this.privateLedger_; }
   get onChainClient(): PreprodOnChainClient { return this.onChainClient_; }
+
+  /**
+   * The session's own capability secrets for a policy (Wave-1 authorization):
+   * the local reference ledger generates them at create; the on-chain
+   * witnesses consume the SAME set. Never public data — callers are the
+   * session's own client code (insurer/oracle flows, e2e).
+   */
+  capabilityFor(policyId: Bytes32): PolicyCapabilities {
+    return this.local.publicLedger.capabilityFor(policyId);
+  }
 
   /** A random address for the session insurer (dev identity). */
   get insurer(): string { return randomAddress(); }
@@ -840,8 +996,15 @@ export class PreprodConditionRuntime implements AsyncConditionRuntime {
     for (const reading of input.readings) {
       this.local.triggerService.registerSource(reading.source);
     }
+    // adoptClaim is a split-e2e TEST-ONLY path: the adopting process is the
+    // same session that replayed create, so its local ledger holds the
+    // policy's capability secrets (capabilityFor) — submitReadings submits
+    // with exactly those registered oracle credentials.
+    const caps = this.local.publicLedger.capabilityFor(input.policyId);
     await this.local.triggerService.submitReadings(
-      input.policyId, input.readings, input.triggerAt,
+      input.policyId,
+      input.readings.map((r, i) => ({ ...r, oracleSecret: caps.oracleSecrets[i]! })),
+      input.triggerAt,
     );
   }
 
@@ -856,14 +1019,19 @@ export class PreprodConditionRuntime implements AsyncConditionRuntime {
 
   readonly policyService: AsyncPolicyService = {
     create: async (insurer, terms, now) => {
-      // Local mirror first: it validates the terms and assigns the
-      // canonical policyId H("condition:policy:v1", insurer, nonce). The
-      // on-chain create() must reproduce that exact id — the parity check
-      // below fails loudly on any cross-layer divergence (the compactParity
-      // pins are the offline guarantee; this is the live one).
+      // Local mirror first: it validates the terms, assigns the canonical
+      // policyId H("condition:policy:v1", insurer, nonce), and generates the
+      // capability set. The on-chain create() must reproduce that exact id —
+      // the parity check below fails loudly on any cross-layer divergence.
       const policy = await this.local.policyService.create(insurer, terms, now);
       const nonce = this.createNonce++;
-      const result = await this.onChainClient_.createPolicyOnChain(insurer, terms, now, nonce);
+      // ONE capability set across both layers: the local reference ledger's
+      // generated secrets are what the on-chain witnesses consume, so the
+      // local mirror's authorization checks and the circuit asserts are
+      // exercised by the same credentials.
+      const caps = this.local.publicLedger.capabilityFor(policy.policyId);
+      this.onChainClient_.registerCapabilitySecrets(policy.policyId, caps);
+      const result = await this.onChainClient_.createPolicyOnChain(insurer, terms, now, nonce, caps);
       if (result.policyId !== policy.policyId) {
         throw new PreprodUnavailableError(
           'network',
@@ -936,9 +1104,28 @@ export class PreprodConditionRuntime implements AsyncConditionRuntime {
       this.local.triggerService.registerSource(name);
     },
 
-    submitReadings: async (policyId, readings, now) => {
-      const sourceA = readings[0]!;
-      const sourceB = readings[1]!;
+    registerOracle: async (policyId, source, oracleSecret, now) => {
+      // Local mirror first (the ledger enforces the insurer capability),
+      // then the same registration on-chain with the SAME credential so
+      // both layers hold identical oracle registries. The runtime picks
+      // the circuit slot by how many are already registered locally.
+      const policy = await this.local.policyService.getPolicy(policyId);
+      const slot = (policy.oracleRegistry.length + 1) as 1 | 2;
+      this.local.triggerService.registerOracle(policyId, source, oracleSecret, now);
+      await this.onChainClient_.registerOracleOnChain(
+        policyId, slot, sourceIdFromName(source), now,
+      );
+    },
+
+    submitReadings: async (policyId, submissions, now) => {
+      if (submissions.length !== 2) {
+        throw new PreprodUnavailableError(
+          'network',
+          `trigger needs exactly 2 oracle submissions, got ${submissions.length}`,
+        );
+      }
+      const sourceA = submissions[0]!;
+      const sourceB = submissions[1]!;
       await this.onChainClient_.recordTriggerOnChain(
         policyId,
         sourceA.value,
@@ -947,7 +1134,7 @@ export class PreprodConditionRuntime implements AsyncConditionRuntime {
         sourceIdFromName(sourceB.source),
         now,
       );
-      return this.local.triggerService.submitReadings(policyId, readings, now);
+      return this.local.triggerService.submitReadings(policyId, submissions, now);
     },
   };
 
@@ -960,9 +1147,33 @@ export class PreprodConditionRuntime implements AsyncConditionRuntime {
       // id must equal the on-chain circuit's (live parity check).
       const witness = witnessProvider();
       const result = await this.onChainClient_.settleOnChain(policyId, now, witness);
+      // Finalize the policy on-chain: the insurer authorizes this settlement
+      // instance (authorize_settlement registers the capability commitment),
+      // then mark_settled/mark_denied consumes it. Order matters: mirror the
+      // local settle FIRST so the local outcome decides which mark to send
+      // (the receipt status is the settlement's own public output).
       const localResult = await this.local.settlementService.settle(
         now, proof, policyId, witnessProvider,
       );
+      const policy = await this.local.policyService.getPolicy(policyId);
+      if (
+        policy.status === 'SETTLED' || policy.status === 'DENIED'
+      ) {
+        try {
+          await this.onChainClient_.authorizeSettlementOnChain(policyId, now);
+          await this.onChainClient_.markSettledOnChain(
+            policyId, policy.status === 'SETTLED', now,
+          );
+        } catch (err) {
+          // Idempotent finalize: a re-run after a crash may find the policy
+          // already terminal on-chain. Anything else is fatal — the chain is
+          // the source of truth.
+          const msg = err instanceof Error ? err.message : String(err);
+          if (!/ALREADY_CREATED|POLICY_INACTIVE/.test(msg)) {
+            throw err;
+          }
+        }
+      }
       if (result.receiptId !== localResult.receipt.receiptId) {
         throw new PreprodUnavailableError(
           'network',
