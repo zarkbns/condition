@@ -13,6 +13,10 @@ import {
   proofHashOf,
   receiptIdDigest,
   sourceIdDigest,
+  insurerAuthOf,
+  oracleEntryOf,
+  settleAuthOf,
+  triggerDigestOf,
 } from '../src/core/hashing.js';
 import { ComparisonOp, TriggerType } from '../src/types/index.js';
 
@@ -82,7 +86,8 @@ console.log('witnessDigest   ', wDigest);
 console.log('proofHash       ', proofHashOf(pubInputs.nullifier, wDigest).slice(0, 0) || proofHashOf(statementDigestOf(pubInputs), wDigest));
 console.log('receiptId       ', receiptIdDigest(policyId, proofHashOf(statementDigestOf(pubInputs), wDigest), true, true, 1_700_040_000));
 console.log('sourceId(meteo) ', sourceIdDigest('open-meteo'));
-// witness digest with readings reversed — must equal wDigest (canonical sort)
+// witness digest with readings reversed — must equal wDigest (canonical
+// value-ascending order, ties by submission order)
 const witnessReversed = {
   ...witness,
   triggerEvidence: {
@@ -91,3 +96,16 @@ const witnessReversed = {
   },
 };
 console.log('witnessReversed equals canonical:', witnessDigestOf(witnessReversed) === wDigest);
+
+// --- Wave-1 capability + trigger-evidence pins -----------------------------
+const insurerSecret = '0x' + '11'.repeat(32);
+const settlementSecret = '0x' + '22'.repeat(32);
+const oracleA = '0x' + '33'.repeat(32);
+const oracleB = '0x' + '44'.repeat(32);
+console.log('insurerAuth     ', insurerAuthOf(policyId, insurerSecret));
+console.log('oracleEntryA    ', oracleEntryOf(policyId, sourceIdDigest('open-meteo'), oracleA));
+console.log('oracleEntryB    ', oracleEntryOf(policyId, sourceIdDigest('noaa'), oracleB));
+console.log('settleAuth      ', settleAuthOf(policyId, settlementSecret));
+console.log('triggerDigest   ', triggerDigestOf(policyId, witness.triggerEvidence));
+// Reordering the SUBMITTED pair does not change the canonical digest.
+console.log('triggerReordered equals canonical:', triggerDigestOf(policyId, witnessReversed.triggerEvidence) === triggerDigestOf(policyId, witness.triggerEvidence));

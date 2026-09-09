@@ -349,10 +349,24 @@ async function runClaimStage(
   );
   console.log(`  commitment    ${commitment}`);
 
-  step('RECORD 2-SOURCE TRIGGER (record_trigger())');
+  step('RECORD 2-SOURCE TRIGGER (register_oracle1/2 + record_trigger())');
   await runtime.triggerService.registerSource('open-meteo');
   await runtime.triggerService.registerSource('noaa');
-  await runtime.triggerService.submitReadings(policyId, state.readings, state.triggerAt);
+  // The session's own oracle credentials — the local reference ledger
+  // generated them at create and the on-chain witnesses consume the SAME
+  // set (one credential set across layers).
+  const caps = runtime.capabilityFor(policyId);
+  await runtime.triggerService.registerOracle(
+    policyId, 'open-meteo', caps.oracleSecrets[0]!, state.triggerAt,
+  );
+  await runtime.triggerService.registerOracle(
+    policyId, 'noaa', caps.oracleSecrets[1]!, state.triggerAt,
+  );
+  await runtime.triggerService.submitReadings(
+    policyId,
+    state.readings.map((r, i) => ({ ...r, oracleSecret: caps.oracleSecrets[i]! })),
+    state.triggerAt,
+  );
   const triggered = await runtime.policyService.getPolicy(policyId);
   console.log(`  outcome       ${triggered.trigger?.outcome} (observed ${triggered.trigger?.observedValue})`);
 

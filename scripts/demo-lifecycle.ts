@@ -35,6 +35,7 @@ import {
   randomAddress,
   readingDigestOf,
   sourceIdDigest,
+  triggerDigestOf,
 } from '../src/core/hashing.js';
 import {
   ComparisonOp,
@@ -104,25 +105,29 @@ const READING_B = 3600; // noaa, 36.00°C
 const insurer = randomAddress();
 let tsSecret = ''; // lives only in the local (private) side of the demo
 
-// Canonical (digest-ascending) reading order — the claimant-side convention
-// shared with witnessDigestOf's sort, so both layers hash identical
-// preimages. Sort key is the READING digest H(source, value), exactly what
-// witnessDigestOf sorts — not the source id.
+// Canonical reading order — value-ascending, ties by submission order —
+// shared with the circuits' Uint comparison (no Bytes ordering exists
+// in-circuit) and with canonicalReadings/witnessDigestOf in the TS layer.
 type Reading = { sourceId: Uint8Array; value: number };
 function canonicalReadings(readings: Reading[]): [Reading, Reading] {
   const [x, y] = readings;
   if (!x || !y) throw new Error('expected exactly two readings');
-  return readingDigestOf(hex(x.sourceId), x.value) < readingDigestOf(hex(y.sourceId), y.value)
-    ? [x, y]
-    : [y, x];
+  return x.value <= y.value ? [x, y] : [y, x];
 }
 
 // The compiled Policy contract object is stateless (circuits run against a
-// context); keep one wired to the live claimant witness provider.
+// context); keep one wired to the live claimant + capability witness
+// providers. Capability secrets come from the TS ledger's own set — the
+// SAME credentials the reference layer checks against.
 let thePolicyContract: PolicyContractT | null = null;
+let capabilitySecrets = { insurer: '', settlement: '', oracle1: '', oracle2: '' };
 function policyContract(): PolicyContractT {
   thePolicyContract ??= new PolicyContract({
     holder_secret: (c) => [c.privateState, hexToBytes(tsSecret)],
+    insurer_secret: (c) => [c.privateState, hexToBytes(capabilitySecrets.insurer)],
+    settlement_secret: (c) => [c.privateState, hexToBytes(capabilitySecrets.settlement)],
+    oracle_secret1: (c) => [c.privateState, hexToBytes(capabilitySecrets.oracle1)],
+    oracle_secret2: (c) => [c.privateState, hexToBytes(capabilitySecrets.oracle2)],
   });
   return thePolicyContract;
 }
@@ -242,13 +247,38 @@ log('');
 // STAGE 4 — 2-source trigger cross-verification (TRIGGERED)
 // ---------------------------------------------------------------------------
 log('── STAGE 4 · trigger cross-verification (2 sources) ────────────────');
+// The capability set the TS ledger generated at create — the SAME secrets
+// the compact witnesses below consume (one credential set across layers).
+{
+  const caps = runtime.publicLedger.capabilityFor(policy.policyId);
+  capabilitySecrets = {
+    insurer: caps.insurerSecret,
+    settlement: caps.settlementSecret,
+    oracle1: caps.oracleSecrets[0]!,
+    oracle2: caps.oracleSecrets[1]!,
+  };
+}
 runtime.triggerService.registerSource('open-meteo');
 runtime.triggerService.registerSource('noaa');
+// Insurer-gated oracle credential registration (v2) — local mirror + the
+// compact register_oracle1/2 circuits below.
+{
+  const caps = runtime.publicLedger.capabilityFor(policy.policyId);
+  runtime.triggerService.registerOracle(policy.policyId, 'open-meteo', caps.oracleSecrets[0]!, T_TRIGGER);
+  runtime.triggerService.registerOracle(policy.policyId, 'noaa', caps.oracleSecrets[1]!, T_TRIGGER);
+  const r1 = policyContract().circuits.register_oracle1(pCtx, hexToBytes(sourceIdDigest('open-meteo')));
+  pCtx = r1.context as typeof pCtx;
+  const r2 = policyContract().circuits.register_oracle2(pCtx, hexToBytes(sourceIdDigest('noaa')));
+  pCtx = r2.context as typeof pCtx;
+  const ledPre = policyLedger(pCtx.currentQueryContext.state);
+  check('oracle registry parity (2 registered)', ledPre.oracle_count === 2n, String(ledPre.oracle_count));
+  log('  [compact]     register_oracle1/2 → two credentials bound to policy+source+secret');
+}
 const triggerRecord = runtime.triggerService.submitReadings(
   policy.policyId,
   [
-    { source: 'open-meteo', value: READING_A },
-    { source: 'noaa', value: READING_B },
+    { source: 'open-meteo', value: READING_A, oracleSecret: capabilitySecrets.oracle1 },
+    { source: 'noaa', value: READING_B, oracleSecret: capabilitySecrets.oracle2 },
   ],
   T_TRIGGER,
 );
@@ -262,10 +292,16 @@ log(`  status        TRIGGERED`);
     t(READING_B),
     hexToBytes(sourceIdDigest('open-meteo')),
     hexToBytes(sourceIdDigest('noaa')),
+    t(T_TRIGGER),
   );
   pCtx = r.context as typeof pCtx;
   const led = policyLedger(pCtx.currentQueryContext.state);
   check('trigger outcome parity', led.trigger_fired === triggerRecord.outcome, String(led.trigger_fired));
+  check(
+    'trigger digest parity (canonical evidence binding)',
+    hex(led.trigger_digest_v) === triggerDigestOf(policy.policyId, triggerRecord),
+    hex(led.trigger_digest_v),
+  );
   check(
     'observed value parity (min2 circuit)',
     led.trigger_value === BigInt(triggerRecord.observedValue),
@@ -377,7 +413,10 @@ log(`  [reference]   settle() → receipt published`);
   });
   let sCtx = freshContext(sContract);
 
-  // link() binds the settlement instance to the public policy facts
+  // link() binds the settlement instance to the public policy facts; the
+  // LINK is holder-capability-gated (v2) — the claimant proves knowledge of
+  // the enrolled secret. trigger_digest_v (the policy's canonical evidence
+  // digest) is mirrored and re-checked inside settle().
   const linkRes = sContract.circuits.link(
     sCtx,
     pLed.policy_id,
@@ -387,6 +426,7 @@ log(`  [reference]   settle() → receipt published`);
     pLed.start,
     pLed.expiry,
     pLed.trigger_fired,
+    pLed.trigger_digest_v,
   );
   sCtx = linkRes.context as typeof sCtx;
 
@@ -429,9 +469,10 @@ log(`  [reference]   settle() → receipt published`);
 }
 record('settlement-executed', { receiptId: receipt.receiptId, status: receipt.status });
 
-// Finalize policy state on the compact layer (begin_settling → mark_settled)
+// Finalize policy state on the compact layer (authorize_settlement →
+// mark_settled — the v2 settlement-capability-gated terminal transition).
 {
-  let r = policyContract().circuits.begin_settling(pCtx);
+  let r = policyContract().circuits.authorize_settlement(pCtx);
   pCtx = r.context as typeof pCtx;
   r = policyContract().circuits.mark_settled(pCtx);
   pCtx = r.context as typeof pCtx;
