@@ -398,10 +398,49 @@ Platform matrix: full toolchain (compact compiler, devnet) on glibc Linux/macOS/
 | Honest holder | Crash mid-proof | Proof is client-local; no partial state published; retry safe (nullifier only spent on success) |
 | Malicious claimant | Claim without enrollment | Eligibility circuit (commitment binding) |
 | Malicious claimant | Double claim | Nullifier registry |
-| Malicious claimant | Forge proof / inflate amount | Payout recomputed deterministically from public terms; amount commitment binding |
-| Malicious oracle | Force or suppress trigger | 2-source agreement, fail-closed on conflict |
-| Malicious insurer | Refuse payout after trigger | Settlement is permissionless once trigger is public; escrow funded at enrollment |
-| Network observer | Link claimant to claim | Public data is commitments/nullifiers/proof hashes only (§2.1) |
+| Malicious claimant | Forge proof / inflate amount | Payout recomputed deterministically from public terms; amount commitment binding; trigger-evidence binding (§7.4a) |
+| Malicious oracle | Force or suppress trigger | Exactly two DISTINCT registered credentials, both required, agreeing outcomes, fail-closed on conflict (§7.1a) |
+| Malicious oracle | Impersonate a registered source / replay another policy's credentials | record_trigger proves knowledge of the registered (policyId, source, secret) credential; instance-scoped registry |
+| Outside attacker | Withdraw escrow / finalize policy / register oracles | Capability gates: insurer auth on withdraw + authorize + register_oracle; settlement auth on mark_settled/mark_denied (§7.1a) |
+| Outside attacker | Brick a claimant's settle by finalizing first | mark_* are settlement-capability-gated from TRIGGERED — no unauthorized caller can move the policy |
+| Outside attacker | Manufacture a settable mirror settlement | link() is holder-capability-gated; a mirror cannot be linked without the holder secret |
+| Malicious insurer | Refuse payout after trigger | Settlement is permissionless once trigger is public; escrow funded at enrollment. Insurer-controlled finalization is a documented residual: refusing to finalize locks the insurer's OWN escrow (withdraw requires terminal state) — no holder loss in Wave 1 |
+| Malicious insurer | Forge a settlement against an untriggered policy | Trigger evidence is bound to the policy's canonical trigger_digest; a fabricated fact set cannot reproduce it, and /verify cross-checks the settlement mirrors against the live policy ledger |
+| Network observer | Link claimant to claim | Public data is commitments/nullifiers/digests/proof hashes only (§2.1) — capability commitments are one-way digests of the same class |
+
+### 12.1 Authorization model (toolchain-constrained, 2026-09-08)
+
+compactc 0.30.0 (language 0.22) provides **no caller identity** and **no
+signature verification**, and cross-contract calls are rejected by codegen
+("not yet supported"). The strongest real authorization primitive available
+is therefore capability-based: every privileged transition verifies, inside
+the circuit, knowledge of a 32-byte high-entropy secret against an on-chain
+commitment — the same primitive the protocol already trusts for holder
+eligibility. Commitments (all domain-separated, all one-way digests):
+
+| Capability | Commitment | Gates |
+|---|---|---|
+| Insurer | `H_auth(policyId, insurer_secret)` at create | withdraw, authorize_settlement, register_oracle1/2 |
+| Oracle (×2) | `H_oracle(policyId, source, secret)` in registry Set | record_trigger (both, distinct) |
+| Settlement | `H_settle(policyId, settlement_secret)` via authorize_settlement | mark_settled, mark_denied |
+| Holder | `H_elig(policyId, holder_secret)` at enroll | enroll, link (settlement) |
+
+Assumptions documented: capability secrets are generated client-side,
+≥128-bit entropy, never persisted or sent (same class as holder_secret,
+§5.4); knowledge-based authorization is delegation-capable by design —
+staking/slashing is Wave 2. The policy↔settlement link is holder-attested
+rather than chain-verified (cross-contract reads unsupported); residual
+trust is the holder's own client, the same trust domain as witness supply,
+and any bogus link is publicly detectable by /verify's cross-checks.
+
+### 12.2 Redeployment requirement
+
+The hardened contracts introduce new ledgers/circuits ⇒ new proving and
+verifying keys ⇒ **the 2026-09-05 Preprod deployments remain on v1 and MUST
+be redeployed for the hardened flow**. The committed legacy decoders
+(contracts/managed-compact/legacy-*) keep /verify and /explorer working for
+the v1 deployments; new deployments register with `generation: 'v2'` in
+PREPROD_DEPLOYMENTS (src/utils/publicChain.ts).
 
 ---
 
