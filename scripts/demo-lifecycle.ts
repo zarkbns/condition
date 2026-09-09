@@ -179,6 +179,19 @@ log(`  policyId      ${policy.policyId}`);
 log(`  termsDigest   ${policy.termsDigest}`);
 log(`  status        ACTIVE`);
 
+// The capability set the TS ledger generated at create — the compact
+// witnesses below consume the SAME secrets from the very first circuit
+// (create binds insurer_auth), so wire them before any circuit runs.
+{
+  const caps = runtime.publicLedger.capabilityFor(policy.policyId);
+  capabilitySecrets = {
+    insurer: caps.insurerSecret,
+    settlement: caps.settlementSecret,
+    oracle1: caps.oracleSecrets[0]!,
+    oracle2: caps.oracleSecrets[1]!,
+  };
+}
+
 // Compact layer — real create() circuit on the real Midnight runtime
 let pCtx = freshContext(policyContract());
 {
@@ -247,17 +260,6 @@ log('');
 // STAGE 4 — 2-source trigger cross-verification (TRIGGERED)
 // ---------------------------------------------------------------------------
 log('── STAGE 4 · trigger cross-verification (2 sources) ────────────────');
-// The capability set the TS ledger generated at create — the SAME secrets
-// the compact witnesses below consume (one credential set across layers).
-{
-  const caps = runtime.publicLedger.capabilityFor(policy.policyId);
-  capabilitySecrets = {
-    insurer: caps.insurerSecret,
-    settlement: caps.settlementSecret,
-    oracle1: caps.oracleSecrets[0]!,
-    oracle2: caps.oracleSecrets[1]!,
-  };
-}
 runtime.triggerService.registerSource('open-meteo');
 runtime.triggerService.registerSource('noaa');
 // Insurer-gated oracle credential registration (v2) — local mirror + the
@@ -381,6 +383,9 @@ const witnessProvider = () => ({
   claimTime: T_CLAIM,
   triggerEvidence: triggerRecord,
 });
+// The insurer authorizes THE settlement instance before finalizing (v2
+// capability gate) — same step the on-chain flow performs.
+runtime.publicLedger.authorizeSettlement(policy.policyId, T_CLAIM);
 const { receipt, releasedAmount } = runtime.settlementService.settle(
   T_SETTLE,
   proof,

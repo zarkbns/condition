@@ -171,12 +171,41 @@ pure circuit reading_digest_c(source: Bytes<32>, value: Uint<64>): Bytes<32> {
   ]);
 }
 
+// Canonical reading order for the evidence digest: value-ascending, ties by
+// submission order. The values are public (disclosed at record time), so the
+// branches are public too. Identical to canonicalReadings in hashing.ts.
+pure circuit first_reading_digest(
+  v1: Uint<64>,
+  v2: Uint<64>,
+  rd1: Bytes<32>,
+  rd2: Bytes<32>,
+): Bytes<32> {
+  if (v1 <= v2) {
+    return rd1;
+  } else {
+    return rd2;
+  }
+}
+
+pure circuit second_reading_digest(
+  v1: Uint<64>,
+  v2: Uint<64>,
+  rd1: Bytes<32>,
+  rd2: Bytes<32>,
+): Bytes<32> {
+  if (v1 <= v2) {
+    return rd2;
+  } else {
+    return rd1;
+  }
+}
+
 // Canonical digest of the ACCEPTED trigger evidence — written once by
 // record_trigger, mirrored by the settlement instance, and re-derived there
-// from the claimant's private witnesses at settle time. Order-sensitive in
-// the recorded submission order (trigger_source1/source2): any substitution
-// or reordering of the evidence changes the digest and fails the settle
-// binding. Mirrors triggerDigestOf in src/core/hashing.ts.
+// from the claimant's private witnesses at settle time. Canonical
+// (value-ascending) order: any substitution or reordering of the evidence
+// changes the digest and fails the settle binding. Mirrors triggerDigestOf
+// in src/core/hashing.ts.
 pure circuit trigger_digest_c(
   policy_id_v: Bytes<32>,
   outcome_v: Boolean,
@@ -402,13 +431,15 @@ export circuit record_trigger(
   trigger_value     = disclose(min2(v1, v2));
   trigger_source1   = s1;
   trigger_source2   = s2;
+  // Canonical evidence order (value-ascending, ties by submission order) —
+  // the digest the settlement must reproduce from the claimant's witnesses.
   trigger_digest_v  = disclose(trigger_digest_c(
     policy_id,
     outcome1,
     min2(v1, v2),
     at,
-    reading_digest_c(s1, v1),
-    reading_digest_c(s2, v2),
+    first_reading_digest(v1, v2, reading_digest_c(s1, v1), reading_digest_c(s2, v2)),
+    second_reading_digest(v1, v2, reading_digest_c(s1, v1), reading_digest_c(s2, v2)),
   ));
   status            = PolicyStatus.triggered;
 }

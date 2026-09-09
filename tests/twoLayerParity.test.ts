@@ -112,6 +112,8 @@ maybe('two-layer execution parity (real compact-runtime)', () => {
     );
 
     const proof = runtime.claimService.submitClaim(policy.policyId, T_CLAIM);
+    // The insurer authorizes THE settlement instance before finalizing (v2).
+    runtime.publicLedger.authorizeSettlement(policy.policyId, T_CLAIM);
     const { receipt, releasedAmount } = runtime.settlementService.settle(
       T_SETTLE,
       proof,
