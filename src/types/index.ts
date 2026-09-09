@@ -51,10 +51,18 @@ export interface Policy {
   insurer: Address;
   terms: PolicyTerms;
   termsDigest: Bytes32;
+  /** Insurer capability commitment H_auth(policyId, insurerSecret). */
+  insurerAuth: Bytes32;
   status: PolicyStatus;
   fundedAmount: Dust;
   enrollmentCommitment: Bytes32 | null;
+  /** Registered oracle credential entries (insertion order, max 2). */
+  oracleRegistry: Bytes32[];
+  /** Commitment of the one settlement instance allowed to finalize (null until authorized). */
+  settleAuthCommit: Bytes32 | null;
   trigger: TriggerRecord | null;
+  /** Canonical digest of the accepted trigger evidence (null until recorded). */
+  triggerDigest: Bytes32 | null;
   createdAt: number;
 }
 
@@ -68,6 +76,36 @@ export interface TriggerRecord {
   outcome: boolean;
   observedValue: number;
   recordedAt: number;
+}
+
+/**
+ * Canonical digest of ACCEPTED trigger evidence (Wave-1 hardening): written
+ * by the policy's authorized oracles, mirrored into the settlement instance,
+ * and re-derived from the claimant's private witnesses at settle time.
+ * Order-sensitive in the recorded submission order.
+ */
+export type TriggerDigest = Bytes32;
+
+/**
+ * 32-byte high-entropy capability secrets (Wave-1 authorization). The
+ * toolchain has no caller-identity primitive, so every privileged transition
+ * is gated by knowledge of a secret checked against an on-chain commitment.
+ * Generated client-side; NEVER persisted, logged, or sent anywhere.
+ */
+export type CapabilitySecret = Bytes32;
+
+/**
+ * Client-side authorization material for a policy lifecycle. The insurer
+ * holds insurer + settlement capabilities and registers the two oracles;
+ * the holder generates holderSecret at enrollment. SettlementSecret is
+ * consumed by the authorized settlement flow (mark_settled/mark_denied).
+ */
+export interface PolicyCapabilities {
+  insurerSecret: CapabilitySecret;
+  /** Registers the settlement instance allowed to finalize this policy. */
+  settlementSecret: CapabilitySecret;
+  /** Two per-policy oracle credentials (H binds policy_id + source + secret). */
+  oracleSecrets: [CapabilitySecret, CapabilitySecret];
 }
 
 /** NEVER leaves the client (Invariant 2). Consumed in-process by the prover. */
@@ -110,8 +148,10 @@ export type ProtocolEventType =
   | 'PolicyCreated'
   | 'PolicyFunded'
   | 'HolderEnrolled'
+  | 'OracleRegistered'
   | 'TriggerRecorded'
   | 'TriggerRejected'
+  | 'SettlementAuthorized'
   | 'ClaimSettled'
   | 'ClaimDenied'
   | 'ReceiptPublished'
@@ -143,6 +183,7 @@ export enum ErrorCode {
   TRIGGER_NOT_RECORDED = 'TRIGGER_NOT_RECORDED',
   TRIGGER_CONFLICT = 'TRIGGER_CONFLICT',
   TRIGGER_INSUFFICIENT_SOURCES = 'TRIGGER_INSUFFICIENT_SOURCES',
+  UNAUTHORIZED = 'UNAUTHORIZED',
   INVALID_PROOF = 'INVALID_PROOF',
   NULLIFIER_SPENT = 'NULLIFIER_SPENT',
   CLAIM_WINDOW_CLOSED = 'CLAIM_WINDOW_CLOSED',

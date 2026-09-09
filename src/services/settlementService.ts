@@ -43,6 +43,12 @@ export class SettlementService {
    * Core settlement circuit. `witnessProvider` mirrors Midnight's
    * WitnessProvider: the holder secret arrives from the claimant's local
    * witness provider, in-process, never over the wire.
+   *
+   * Wave-1 hardening: the witness evidence must re-derive the policy's
+   * canonical trigger digest (verified inside verifyClaimProof), and the
+   * policy's terminal transition is settlement-capability-gated — the
+   * session's own settlement credential is applied through
+   * ledger.completeSettlement, exactly as the circuit asserts on-chain.
    */
   settle(
     now: number,
@@ -60,13 +66,13 @@ export class SettlementService {
 
     // ---- checks (read-only) -------------------------------------------------
 
-    if (policy.status !== PolicyStatus.TRIGGERED && policy.status !== PolicyStatus.SETTLING) {
+    if (policy.status !== PolicyStatus.TRIGGERED) {
       throw new ProtocolError(ErrorCode.POLICY_INACTIVE, `settle: status ${policy.status}`);
     }
     if (policy.enrollmentCommitment === null) {
       throw new ProtocolError(ErrorCode.NOT_ENROLLED);
     }
-    if (policy.trigger === null) {
+    if (policy.trigger === null || policy.triggerDigest === null) {
       throw new ProtocolError(ErrorCode.TRIGGER_NOT_RECORDED);
     }
     if (proof.publicInputs.policyId !== policyId) {
@@ -117,7 +123,11 @@ export class SettlementService {
     // Nullifier is spent only on the success path — a crashed client can
     // always retry safely (settlement finality, Invariant 4).
     this.ledger.spendNullifier(proof.publicInputs.nullifier);
-    this.ledger.completeSettlement(policyId, status, receipt, now);
+    // The authorized settlement instance finalizes the policy (mark_settled /
+    // mark_denied on-chain) and publishes the receipt.
+    this.ledger.completeSettlement(
+      policyId, status, receipt, now, this.ledger.capabilityFor(policyId).settlementSecret,
+    );
     if (willSettle) {
       this.settled += 1;
     } else {

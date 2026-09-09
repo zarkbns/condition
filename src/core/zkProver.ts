@@ -34,6 +34,7 @@ import {
   proofHashOf,
   payoutCommitmentOf,
   statementDigestOf,
+  triggerDigestOf,
   witnessDigestOf,
 } from './hashing.js';
 import { expectedPayout } from './payout.js';
@@ -91,6 +92,22 @@ export function verifyClaimProof(
 
   if (witness.settlementAmount !== publicAmount) {
     return { valid: false, reason: 'witness amount is not the deterministic payout', publicAmount };
+  }
+
+  // Trigger-evidence binding (Wave-1 hardening): the claimant's private
+  // evidence must re-derive exactly the canonical trigger digest the policy
+  // instance's registered oracles recorded. Substituted, reordered, or
+  // fabricated evidence is rejected here — mirroring the settlement
+  // circuit's derived_trigger == trigger_digest assert.
+  if (policy.triggerDigest !== null) {
+    const evidenceDigest = triggerDigestOf(witness.policyId, witness.triggerEvidence);
+    if (evidenceDigest !== policy.triggerDigest) {
+      return {
+        valid: false,
+        reason: 'witness trigger evidence does not match the policy record',
+        publicAmount,
+      };
+    }
   }
 
   if (payoutCommitmentOf(publicAmount) !== proof.publicInputs.expectedPayoutCommitment) {

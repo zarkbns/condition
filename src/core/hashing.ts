@@ -24,7 +24,14 @@ import {
   ComparisonOp,
   TriggerType,
 } from '../types/index.js';
-import type { Bytes32, ClaimProofPublicInputs, ClaimWitness, PolicyTerms } from '../types/index.js';
+import type {
+  Bytes32,
+  ClaimProofPublicInputs,
+  ClaimWitness,
+  PolicyTerms,
+  TriggerRecord,
+  TriggerSourceReading,
+} from '../types/index.js';
 
 export const DOMAIN_TAGS = {
   policy: 'condition:policy:v1',
@@ -38,6 +45,11 @@ export const DOMAIN_TAGS = {
   proof: 'condition:proof:v1',
   receipt: 'condition:receipt:v1',
   reading: 'condition:reading:v1',
+  /** Wave-1 hardening: capability + trigger-evidence commitments. */
+  auth: 'condition:auth:v1',
+  oracle: 'condition:oracle:v1',
+  settleAuth: 'condition:settle:v1',
+  trigger: 'condition:trigger:v1',
 } as const;
 
 /** Enum codes shared with contracts/*.compact (0-based, matches enum ordinals). */
@@ -171,6 +183,85 @@ export function sourceIdDigest(name: string): Bytes32 {
 }
 
 // ---------------------------------------------------------------------------
+// Capability commitments (Wave-1 authorization — compactc 0.30.0 has no
+// caller-identity primitive, so privileged transitions are gated by knowledge
+// of a 32-byte secret checked against one of these on-chain commitments).
+// ---------------------------------------------------------------------------
+
+/** Insurer capability commitment — gates withdraw/authorize/register_oracle. */
+export function insurerAuthOf(policyId: Bytes32, insurerSecret: Bytes32): Bytes32 {
+  return digest(DOMAIN_TAGS.auth, fieldFromBytes32(policyId), fieldFromBytes32(insurerSecret));
+}
+
+/** Oracle credential entry — H(policy, source, secret). Instance-scoped: a
+ * credential (or its secret) registered on one policy can never satisfy
+ * another policy's registry. */
+export function oracleEntryOf(
+  policyId: Bytes32,
+  sourceId: Bytes32,
+  oracleSecret: Bytes32,
+): Bytes32 {
+  return digest(
+    DOMAIN_TAGS.oracle,
+    fieldFromBytes32(policyId),
+    fieldFromBytes32(sourceId),
+    fieldFromBytes32(oracleSecret),
+  );
+}
+
+/** Settlement capability commitment — the insurer registers exactly one
+ * settlement instance per policy; it alone may finalize the policy. */
+export function settleAuthOf(policyId: Bytes32, settlementSecret: Bytes32): Bytes32 {
+  return digest(DOMAIN_TAGS.settleAuth, fieldFromBytes32(policyId), fieldFromBytes32(settlementSecret));
+}
+
+// ---------------------------------------------------------------------------
+// Trigger-evidence canonicalization + digest (Wave-1 binding)
+// ---------------------------------------------------------------------------
+
+/**
+ * Canonical order for a two-reading evidence pair: value-ascending, ties
+ * broken by submission order (stable). The Compact circuits compare the
+ * Uint values, so both layers apply the identical rule. This makes the
+ * trigger digest independent of how an equivalent evidence pair was supplied
+ * (the reference runtime keeps readings digest-ascending internally) while
+ * still binding the exact sources, values, outcome, and timestamps.
+ */
+export function canonicalReadings(
+  readings: TriggerSourceReading[],
+): { first: TriggerSourceReading; second: TriggerSourceReading } {
+  if (readings.length !== 2) {
+    throw new Error(`canonicalReadings expects exactly 2 readings, got ${readings.length}`);
+  }
+  const [a, b] = readings;
+  if (!a || !b) {
+    throw new Error('canonicalReadings expects exactly 2 readings');
+  }
+  return a.value <= b.value ? { first: a, second: b } : { first: b, second: a };
+}
+
+/**
+ * Canonical digest of ACCEPTED trigger evidence: H(trigger:v1, policy,
+ * outcome, observed, recordedAt, rd1, rd2) over the canonical reading order.
+ * Written by the policy's registered oracles (record_trigger), mirrored into
+ * the settlement instance at link, and re-derived from the claimant's private
+ * witnesses at settle time — substituted, reordered, or fabricated evidence
+ * cannot settle.
+ */
+export function triggerDigestOf(policyId: Bytes32, record: TriggerRecord): Bytes32 {
+  const { first, second } = canonicalReadings(record.readings);
+  return digest(
+    DOMAIN_TAGS.trigger,
+    fieldFromBytes32(policyId),
+    fieldFromBool(record.outcome),
+    fieldFromInt(record.observedValue),
+    fieldFromInt(record.recordedAt),
+    fieldFromBytes32(readingDigestOf(first.sourceId, first.value)),
+    fieldFromBytes32(readingDigestOf(second.sourceId, second.value)),
+  );
+}
+
+// ---------------------------------------------------------------------------
 // Claimant-side derivations (private secret in, unlinkable digests out)
 // ---------------------------------------------------------------------------
 
@@ -217,9 +308,11 @@ export function statementDigestOf(inputs: ClaimProofPublicInputs): Bytes32 {
 
 export function witnessDigestOf(witness: ClaimWitness): Bytes32 {
   const evidence = witness.triggerEvidence;
-  const readings = [...evidence.readings]
-    .map((r) => digest(DOMAIN_TAGS.reading, fieldFromBytes32(r.sourceId), fieldFromInt(r.value)))
-    .sort();
+  // Canonical reading order — value-ascending, ties by submission order —
+  // identical to the circuit's ordering of the claimant's two readings
+  // (policy.compact/settlement.compact compare the Uint values). The old
+  // digest-ascending sort is gone: it could not be reproduced in-circuit.
+  const { first, second } = canonicalReadings(evidence.readings);
   return digest(
     DOMAIN_TAGS.witness,
     fieldFromBytes32(witness.policyId),
@@ -229,7 +322,8 @@ export function witnessDigestOf(witness: ClaimWitness): Bytes32 {
     fieldFromBool(evidence.outcome),
     fieldFromInt(evidence.observedValue),
     fieldFromInt(evidence.recordedAt),
-    ...readings.map((r) => fieldFromBytes32(r)),
+    fieldFromBytes32(readingDigestOf(first.sourceId, first.value)),
+    fieldFromBytes32(readingDigestOf(second.sourceId, second.value)),
   );
 }
 
