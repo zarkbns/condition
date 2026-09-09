@@ -48,7 +48,11 @@
 
 import { receiptIdDigest, termsDigestOf, bytesToHex } from '../core/hashing.js';
 import { TriggerType, ComparisonOp } from '../types/index.js';
-import { loadManagedLedgerDecoder, type LedgerDecoder } from './managedContracts.js';
+import {
+  loadManagedLedgerDecoder,
+  loadLegacyLedgerDecoder,
+  type LedgerDecoder,
+} from './managedContracts.js';
 import type { Bytes32, PolicyTerms } from '../types/index.js';
 
 // ---------------------------------------------------------------------------
@@ -71,6 +75,13 @@ export interface KnownDeployment {
   policyId: Bytes32;
   /** The published receipt of the on-chain lifecycle (verify page demo input). */
   receiptId: Bytes32;
+  /**
+   * Contract generation: 'v1' = pre-hardening sources (decoded by the
+   * committed legacy modules); 'v2' = capability-hardened sources
+   * (decoded by the current managed-compact modules). New deployments
+   * register here with 'v2' when they go live.
+   */
+  generation?: 'v1' | 'v2';
   /** Block heights of the recorded lifecycle txs (evidence chain). */
   lifecycle: Array<{ step: string; block: number; txHash: string }>;
 }
@@ -82,6 +93,8 @@ export const PREPROD_DEPLOYMENTS: KnownDeployment[] = [
     settlementAddress: '90f1d7ae19bdb9c531b003d95fd35ef4c507050390ad31e4289d172d72a8297c',
     policyId: '0xc78d5715f8befa155b0e793fedf1fa333a2433a18a1366fb5b03a7e0dea78361',
     receiptId: '0x20acedd59572ddc0b582bffcf236e43c414e005609bbef200a1ebf95998608a2',
+    // Pre-hardening sources: decoded by the committed legacy (v1) modules.
+    generation: 'v1',
     lifecycle: [
       { step: 'deploy policy', block: 2421479, txHash: 'cee2633c1808f1530c770b48be3e4f3c22da36ca9396df54312501307388aa08' },
       { step: 'create', block: 2421490, txHash: '2662db289b7c7bc92fd0ef75041c15e88105971eea12cebf237ba96989871349' },
@@ -401,8 +414,18 @@ async function ensureChainRuntime(): Promise<void> {
  * The committed compiled contract module's ledger decoder (see
  * src/utils/managedContracts.ts) — always resolvable, so no build (fresh
  * clone or Vercel) ever depends on a locally compiled contracts/managed.
+ *
+ * Generation-aware: the 2026-09-05 deployments were built from the
+ * pre-hardening (v1) sources whose ledger layout the v2 modules cannot
+ * decode, so known v1 deployments use the committed legacy modules.
  */
-async function loadDecoder(name: 'policy' | 'settlement'): Promise<LedgerDecoder> {
+async function loadDecoder(name: 'policy' | 'settlement', address?: string): Promise<LedgerDecoder> {
+  const deployment = address
+    ? findDeploymentByAddress(address)
+    : undefined;
+  if (deployment?.generation === 'v1') {
+    return loadLegacyLedgerDecoder(name);
+  }
   return loadManagedLedgerDecoder(name);
 }
 
@@ -428,7 +451,7 @@ export async function fetchSettlementState(
   }
   const { ContractState } = await import('@midnight-ntwrk/compact-runtime');
   await ensureChainRuntime();
-  const ledger = await loadDecoder('settlement');
+  const ledger = await loadDecoder('settlement', bare);
   const decoded = ledger(ContractState.deserialize(stateHexToBytes(raw)).data);
   const spent = decoded['spent_nullifiers'] as { size: () => bigint } | undefined;
   if (!spent || typeof spent.size !== 'function') {
@@ -468,7 +491,7 @@ export async function fetchPolicyState(
   }
   const { ContractState } = await import('@midnight-ntwrk/compact-runtime');
   await ensureChainRuntime();
-  const ledger = await loadDecoder('policy');
+  const ledger = await loadDecoder('policy', bare);
   const decoded = ledger(ContractState.deserialize(stateHexToBytes(raw)).data);
   return {
     policyId: asBytes32(decoded['policy_id'], 'policy_id'),

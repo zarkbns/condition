@@ -64,3 +64,22 @@ export async function loadManagedLedgerDecoder(
   const mod = (await loadManagedContractModule(name)) as unknown as { ledger: LedgerDecoder };
   return mod.ledger;
 }
+
+// ---------------------------------------------------------------------------
+// Legacy (v1) decoders — the 2026-09-05 Preprod deployments were built from
+// the pre-hardening contract sources. Their on-chain state has the v1 ledger
+// layout, which the v2 modules cannot decode. The committed legacy modules
+// (contracts/managed-compact/legacy-*) are the compiler output of those
+// sources, kept so /verify and /explorer keep reading the EXISTING
+// deployments; post-redeploy deployments decode with the v2 modules.
+// ---------------------------------------------------------------------------
+
+export type LegacyContractName = 'policy' | 'settlement';
+
+export async function loadLegacyLedgerDecoder(name: LegacyContractName): Promise<LedgerDecoder> {
+  const mod = (await import(
+    `../../contracts/managed-compact/legacy-${name}/contract/index.js`
+  )) as { default?: unknown } & Record<string, unknown>;
+  const resolved = (mod.default ?? mod) as unknown as { ledger: LedgerDecoder };
+  return resolved.ledger;
+}
