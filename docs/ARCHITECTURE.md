@@ -49,17 +49,23 @@ The Compact compiler is a native binary that doesn't run on all developer platfo
 Everything the public ledger ever sees:
 
 ```
-PolicyCreated    { policyId, insurer, termsDigest, terms }
-PolicyFunded     { policyId, amount, fundedAmount }
-HolderEnrolled   { policyId, enrollmentCommitment }
-TriggerRecorded  { policyId, observedValue, outcome, sourceIds }
-TriggerRejected  { policyId, reason }
-ClaimSettled     { policyId, receiptId }
-ClaimDenied      { policyId, receiptId }
-ReceiptPublished { receiptId, policyId, proofHash, triggerOutcome, status, timestamp }
-PolicyExpired    { policyId }
-PolicyClosed     { policyId, refundedAmount }
+PolicyCreated         { policyId, insurer, termsDigest, insurerAuth, terms }
+PolicyFunded          { policyId, amount, fundedAmount }
+HolderEnrolled        { policyId, enrollmentCommitment }
+OracleRegistered      { policyId, oracleEntry }
+TriggerRecorded       { policyId, observedValue, outcome, sourceIds, triggerDigest }
+TriggerRejected       { policyId, reason }
+SettlementAuthorized  { policyId, settleAuthCommit }
+ClaimSettled          { policyId, receiptId }
+ClaimDenied           { policyId, receiptId }
+ReceiptPublished      { receiptId, policyId, proofHash, triggerOutcome, status, timestamp }
+PolicyExpired         { policyId }
+PolicyClosed          { policyId, refundedAmount }
 ```
+
+`insurerAuth`, `oracleEntry`, `settleAuthCommit` and `triggerDigest` are one-way
+capability/evidence digests — public for exactly the same reason the enrollment
+commitment is (see `BUILD_SPEC.md` §12.1). No claimant data, ever.
 
 Everything that stays private, forever:
 
@@ -176,7 +182,7 @@ Dependency direction: `services → core`; `frontend → services`. Nothing in `
 ## 8. Failure Modes & Safety
 
 - **Client crashes mid-proof:** nothing published; nullifier unspent; retry works.
-- **Malicious oracle:** one source alone can never record (or suppress) a trigger — needs a second agreeing source.
+- **Malicious oracle:** a trigger requires two DISTINCT sources backed by two DISTINCT registered oracle credentials (per-policy registry, insurer-gated), with agreeing outcomes — an unregistered impostor, a credential replayed from another policy, or one actor submitting both readings all fail `UNAUTHORIZED`/`TRIGGER_INSUFFICIENT_SOURCES`.
 - **Forged proof:** verification recomputes the proof hash from public inputs and checks eligibility/nullifier/payout bindings — any tampering fails `INVALID_PROOF`.
 - **Replay/double-claim:** deterministic nullifier + spent registry.
 - **Insufficient escrow at settle:** fail-closed `INSUFFICIENT_FUNDING`; insurer can top up; policy is not settled.

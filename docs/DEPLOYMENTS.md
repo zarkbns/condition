@@ -129,6 +129,15 @@ defaults and `src/utils/preprodRuntime.ts` are aligned to v3 for this reason.
 MIDNIGHT_WALLET_SEED=<funded preprod seed> npm run deploy
 ```
 
+**Generation note:** everything recorded above is the **pre-hardening
+generation** (the contract sources as of 2026-09-05). The hardened sources in
+`contracts/` (capability authorization, registered oracles, canonical trigger
+binding — `BUILD_SPEC.md` §12) are compiled, tested and committed but **not
+deployed yet**: deploying them is Wave-2 work, and new deployments register in
+`PREPROD_DEPLOYMENTS` (`src/utils/publicChain.ts`) with `generation: 'v2'`.
+Until then, `/verify` and `/explorer` read the deployed generation through the
+committed legacy decoders.
+
 Requirements:
 
 - **Proof server 8.1.0** — must match the ledger-v8 8.1.0 / wallet-sdk 3.x

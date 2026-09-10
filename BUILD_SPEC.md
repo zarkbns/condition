@@ -436,11 +436,13 @@ and any bogus link is publicly detectable by /verify's cross-checks.
 ### 12.2 Redeployment requirement
 
 The hardened contracts introduce new ledgers/circuits ⇒ new proving and
-verifying keys ⇒ **the 2026-09-05 Preprod deployments remain on v1 and MUST
-be redeployed for the hardened flow**. The committed legacy decoders
-(contracts/managed-compact/legacy-*) keep /verify and /explorer working for
-the v1 deployments; new deployments register with `generation: 'v2'` in
-PREPROD_DEPLOYMENTS (src/utils/publicChain.ts).
+verifying keys ⇒ **the 2026-09-05 Preprod deployments remain on v1 and must be
+redeployed for the hardened flow**. That redeployment is **deferred to Wave 2**
+(decision 2026-09-10): a deploy attempt on 2026-09-10 was halted after three
+unsuccessful submissions, and the v1 deployments remain the live, verified
+truth. The committed legacy decoders (contracts/managed-compact/legacy-*) keep
+/verify and /explorer working for the v1 deployments; new deployments register
+with `generation: 'v2'` in PREPROD_DEPLOYMENTS (src/utils/publicChain.ts).
 
 ---
 

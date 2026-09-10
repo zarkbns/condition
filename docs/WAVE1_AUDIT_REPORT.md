@@ -94,12 +94,13 @@ primitive the protocol already trusted for holder eligibility.
 
 ## 6. Deployment status
 
-- **REDEPLOYMENT REQUIRED.** The hardened contracts have new ledgers/circuits ⇒ new proving
+- **REDEPLOYMENT REQUIRED — deferred to Wave 2.** The hardened contracts have new ledgers/circuits ⇒ new proving
   keys. The 2026-09-05 Preprod deployments remain on v1 and keep working: the committed
   legacy decoders let /verify and /explorer decode and verify them (generation-aware
   decoding in `publicChain.ts`). New deployments (when intentionally run via
   `npm run deploy`) must register in `PREPROD_DEPLOYMENTS` with `generation: 'v2'`.
-  No deployment was performed in this pass.
+  No deployment was performed in this pass; a deploy attempt on 2026-09-10 was halted
+  after three unsuccessful submissions and the redeploy is Wave-2 work.
 - Vercel: pushing main triggers an auto-redeploy of the site; the permission-prompt fix and
   read-only surfaces are live immediately; wallet-connected contract operations target the
   hardened circuits and require the redeploy first (they fail loudly, not silently).
