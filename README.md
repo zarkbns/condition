@@ -1,6 +1,8 @@
 # Condition – Privacy-Preserving Parametric Insurance on Midnight
 
-**Status:** Live on Midnight Preprod — the full lifecycle (create → fund → enroll → 2-source trigger → private claim → client-side ZK proof → settle → public receipt) executed on-chain 2026-09-05, all transactions `SUCCESS` ([evidence](docs/DEPLOYMENTS.md)). 156 tests green, live two-layer lifecycle demo (CLI), full cross-layer digest parity. Real on-chain writes run via the CLI — see [What runs where](#what-runs-where-browser-vs-cli).
+**Status:** Live on Midnight Preprod — the full lifecycle (create → fund → enroll → 2-source trigger → private claim → client-side ZK proof → settle → public receipt) executed on-chain 2026-09-05, all transactions `SUCCESS` ([evidence](docs/DEPLOYMENTS.md)). 208 tests green, live two-layer lifecycle demo (CLI), full cross-layer digest parity. Real on-chain writes run via the CLI — see [What runs where](#what-runs-where-browser-vs-cli).
+
+**Two contract generations, stated plainly:** the contracts in `contracts/` are the **hardened Wave-1 sources** (capability authorization, registered oracles, canonical trigger binding — see `BUILD_SPEC.md` §12); the Preprod instances deployed 2026-09-05 are the **pre-hardening generation** and remain the live, verified deployment. Deploying the hardened sources is Wave-2 work; until then the public verifier reads the deployed generation through the committed legacy decoders, and every doc below says which generation it is talking about.
 
 ## Judge Quickstart
 
@@ -77,7 +79,7 @@ Web2 insurance:
 
 ### Why two layers?
 
-The canonical Compact sources are the deployed truth; the TypeScript reference runtime is the executable specification used by the frontend and the test suite. **The two layers are proven identical**: `tests/twoLayerParity.test.ts` runs the complete lifecycle on BOTH the TS reference runtime AND the real compiled Compact circuits executing on the real `@midnight-ntwrk/compact-runtime`, asserting byte-identical digests at every stage — policyId, termsDigest, enrollment commitment, nullifier, statement, proof hash, and settlement receipt id.
+The canonical Compact sources (the hardened Wave-1 contracts in `contracts/`) are the protocol's source of truth; the TypeScript reference runtime is the executable specification used by the frontend and the test suite. **The two layers are proven identical**: `tests/twoLayerParity.test.ts` runs the complete lifecycle on BOTH the TS reference runtime AND the real compiled Compact circuits executing on the real `@midnight-ntwrk/compact-runtime`, asserting byte-identical digests at every stage — policyId, termsDigest, enrollment commitment, nullifier, trigger evidence digest, statement, proof hash, and settlement receipt id. (The Preprod instances deployed 2026-09-05 predate the hardening — see the generation note at the top.)
 
 `npm run build:contracts` compiles the real contracts with compactc 0.30.0 (works on Android/Termux via proot, and on any glibc/macOS host). Circuit identities (sha256 of each verifier key + zkir) are recorded in `deploy/artifacts.json`.
 
@@ -122,7 +124,7 @@ Then in the browser — one guided journey through the six lifecycle stages, wit
 | — Verify | `/verify` | **Stranger mode:** paste a receipt id, the browser fetches the contract state from the Preprod indexer and recomputes the digest — no wallet, no session |
 | — Explore | `/explorer` | Live Preprod blocks, txs and the Condition contract registry, with public data and redacted-private data shown as such |
 
-These pages run the protocol client-side. A banner on every page states which runtime is driving: the **local reference** runtime (an explicit opt-in — the real state machine, digests and proofs, but nothing written on-chain), or Midnight Preprod. Connecting a Midnight wallet in the browser is detected where implemented but does not yet submit transactions — see [What runs where](#what-runs-where-browser-vs-cli).
+These pages run the protocol client-side. A banner on every page states which runtime is driving: the **local reference** runtime (an explicit opt-in — the real state machine, digests and proofs, but nothing written on-chain), or Midnight Preprod. Connecting a Midnight wallet builds the live on-chain stack via the DApp Connector (the wallet proves, signs and submits — see [What runs where](#what-runs-where-browser-vs-cli)); against the currently deployed pre-hardening contracts, hardened-circuit operations fail loud until the Wave-2 redeploy.
 
 `npm run deploy` performs a real Preprod deployment (Midnight wallet-sdk facade stack: unshielded + bootstrapped dust wallets → `deployContract`), recording contract addresses and tx hashes. When Midnight endpoints are unreachable (e.g. this build environment's network), it falls back to local real-runtime verification of the same compiled contracts and records the honest blocker with evidence. Every run writes `deploy/deployments.json`; circuit identities live in `deploy/artifacts.json`. Secrets are read only from `process.env` — never committed.
 
@@ -132,7 +134,7 @@ The "live end-to-end" capabilities in this README are CLI capabilities. The depl
 
 | Capability | Where it runs |
 |------------|---------------|
-| Real Preprod contract deployment + on-chain lifecycle (`create → fund → enroll → record_trigger → link → settle`) | **CLI** — `npm run deploy`, `scripts/e2e-preprod.ts` (seed-backed provider stack on the developer's machine) — and **browser** via the DApp Connector adapter (wallet signs, pays fees, and proves; no seed to the site) |
+| Real Preprod contract deployment + on-chain lifecycle | **CLI** — `npm run deploy`, `scripts/e2e-preprod.ts` (seed-backed provider stack on the developer's machine) — and **browser** via the DApp Connector adapter (wallet signs, pays fees, and proves; no seed to the site). The 2026-09-05 executed lifecycle used the pre-hardening flow (`create → fund → enroll → record_trigger → link → settle`); the hardened sources add the insurer-gated steps (`register_oracle1/2`, `authorize_settlement`, `mark_settled`) and go live with the Wave-2 redeploy |
 | Adapter-path verification of that browser lifecycle | **CLI harness** — `npx tsx scripts/probe-browser-stack.ts` (real proof server behind the connector's proving interface, real Preprod confirmation) |
 | Live two-layer lifecycle demo (compiled circuits on the real compact-runtime, both layers in lockstep) | **CLI only** — `npx tsx scripts/demo-lifecycle.ts` (local execution, not the Preprod network) |
 | Deployed frontend (Vercel) — pages, client-side proof generation, receipt verification, LOCAL DEV reference loop | **Browser** |
@@ -254,7 +256,7 @@ Three tiers, best-first:
 2. **Local real-runtime** — when Midnight endpoints are unreachable, the same compiled contracts execute on the real `@midnight-ntwrk/compact-runtime` locally: full lifecycle, digest parity, recorded as evidence in `deploy/deployments.json`.
 3. **Reference dry-run** — no compiled contracts: TS reference loop only.
 
-### Live on Preprod (deployed 2026-09-03)
+### Live on Preprod (deployed 2026-09-03 — pre-hardening generation)
 
 #### Contracts — view on the Midnight Preprod Explorer
 

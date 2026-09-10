@@ -52,8 +52,10 @@ export function ModeBanner({ status }: { status: PreprodStatus }) {
         <span className="mode-copy">
           Connected to the live Preprod deployment
           {status.walletAddress ? ` as ${short(status.walletAddress)}` : ''}.
-          Browser transaction submission is not wired yet — on-chain writes fail
-          loud rather than simulate.
+          Transaction submission is wired via the DApp Connector (the wallet
+          proves, signs and submits). Note: the currently deployed contracts
+          are the pre-hardening generation — operations on the hardened
+          circuits require the Wave-2 redeploy and fail loud until then.
         </span>
       </div>
     );
