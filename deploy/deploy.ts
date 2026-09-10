@@ -82,9 +82,18 @@ const DUST_RESUME_EVENT_ID = 1480937n;
 
 // Witness names per contract (from the generated index.d.ts). Deploy only
 // runs constructors; these throwing stubs satisfy ctor validation without
-// binding any real witness providers.
+// binding any real witness providers. MUST stay in lockstep with the v2
+// contracts' witness declarations (policy gains the capability-secret
+// witnesses from the Wave-1 hardening — real values are supplied by the
+// runtime's witness providers at circuit time, never at deploy).
 const DEPLOY_WITNESSES: Record<'policy' | 'settlement', string[]> = {
-  policy: ['holder_secret'],
+  policy: [
+    'holder_secret',
+    'insurer_secret',
+    'oracle_secret1',
+    'oracle_secret2',
+    'settlement_secret',
+  ],
   settlement: [
     'holder_secret',
     'claim_time',
