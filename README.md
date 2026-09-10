@@ -9,7 +9,7 @@
 Two commands and two links cover the entire claim:
 
 ```bash
-npm i && npm test                    # 156 tests — incl. the adversarial privacy suite and two-layer circuit parity
+npm i && npm test                    # 208 tests — incl. the adversarial privacy + authorization suites and two-layer circuit parity
 npx tsx scripts/demo-lifecycle.ts    # the full lifecycle on the real compiled Compact circuits, with live output
 ```
 
@@ -74,7 +74,7 @@ Web2 insurance:
 - **Reference runtime:** TypeScript (`src/core` + `src/services`) — the executable spec
 - **Frontend:** Next.js 14 (Pages Router), React 18
 - **ZK proofs:** Client-side generation (browser, in-process; zero API routes)
-- **Testing:** Vitest (156 tests incl. adversarial privacy suite)
+- **Testing:** Vitest (208 tests incl. adversarial privacy + authorization suites)
 - **Hashing:** Hand-rolled SHA-256, pinned to NIST FIPS 180-4 vectors, zero runtime deps
 
 ### Why two layers?
@@ -107,7 +107,7 @@ Every stage shows the real compiled circuit executing on the real Midnight runti
 
 ```bash
 npm install        # deps + android swc shim (no-op elsewhere)
-npm test           # 156 tests: policy, trigger, claim, settlement, zk, privacy, parity, two-layer, fail-loud, frontend
+npm test           # 208 tests: policy, trigger, claim, settlement, zk, privacy, authorization, parity, two-layer, fail-loud, frontend
 npm run build      # typecheck + compile TS + contracts (compactc, incl. Termux via proot)
 npm run build:frontend
 npx tsx scripts/demo-lifecycle.ts   # live two-layer lifecycle demo
@@ -233,7 +233,7 @@ Details: `docs/WAVES.md` · Spec: `BUILD_SPEC.md`
 ## Testing
 
 ```bash
-npm test                                 # full suite (156 tests)
+npm test                                 # full suite (208 tests)
 npx vitest run tests/privacy.test.ts     # just the invariant suite
 npx vitest run tests/twoLayerParity.test.ts   # compiled-circuit vs reference parity
 ```

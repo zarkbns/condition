@@ -52,10 +52,9 @@ export function ModeBanner({ status }: { status: PreprodStatus }) {
         <span className="mode-copy">
           Connected to the live Preprod deployment
           {status.walletAddress ? ` as ${short(status.walletAddress)}` : ''}.
-          Transaction submission is wired via the DApp Connector (the wallet
-          proves, signs and submits). Note: the currently deployed contracts
-          are the pre-hardening generation — operations on the hardened
-          circuits require the Wave-2 redeploy and fail loud until then.
+          The wallet proves, signs and submits; the deployment predates the
+          latest protocol hardening, so the newest operations fail loud until
+          the contracts are redeployed.
         </span>
       </div>
     );

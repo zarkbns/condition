@@ -152,7 +152,7 @@ export default function Home() {
               {[
                 '● LIVE ON PREPROD',
                 'FULL LIFECYCLE · 8/8 TXS SUCCESS',
-                '156 TESTS GREEN',
+                '208 TESTS GREEN',
               ].map((s) => (
                 <span
                   key={s}
