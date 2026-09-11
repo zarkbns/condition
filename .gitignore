@@ -14,7 +14,3 @@ contracts/managed/
 .qwen/
 glmplan.md
 core
-frontend/tsconfig.tsbuildinfo
-plans/
-video/
-videos/
